@@ -3,7 +3,7 @@
 > *The agent thinks it's acting freely. The framework holds the strings.*
 
 An open observation environment for AI agents. Marionette gives an LLM agent tools and a goal, lets it act inside a synthetic world that feels real, and captures every action it takes — including the ones it shouldn't try.
-For contributors and AI assistants: see context.md for the full project context, design decisions, and current state.
+### For contributors and AI assistants: see context.md for the full project context, design decisions, and current state.
 ---
 
 ## Status
