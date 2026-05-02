@@ -70,3 +70,35 @@
 
 &#x20; tool-calling protocol over localhost HTTP can be the agent.
 
+
+
+\## Conventions
+
+
+
+\### Commits
+
+This project follows \[Conventional Commits](https://www.conventionalcommits.org/).
+
+Format: `<type>(<scope>): <description>`
+
+
+
+Types in active use: feat, fix, docs, refactor, test, chore, ci, perf.
+
+Scopes (will grow): engine, gateway, adapter, scenarios, analysis.
+
+Description is imperative, lowercase, no trailing period.
+
+
+
+Breaking changes get `!` after the type/scope.
+
+
+
+\### Branching
+
+Main branch: `main`. Direct commits to main are fine while solo.
+
+Once contributors arrive, switch to PR-only.
+
