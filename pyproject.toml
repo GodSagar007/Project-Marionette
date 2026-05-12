@@ -12,7 +12,9 @@ authors = [
     { name = "Sagar Tewari", email = "tewarisagar007@gmail.com" },
 ]
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "pydantic>=2.10",
+]
 
 [dependency-groups]
 dev = [
