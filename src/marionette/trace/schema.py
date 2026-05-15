@@ -52,6 +52,50 @@ class ToolResultPayload(_StrictBase):
 
     call_id: str
     result: Any
+
+class RunCompletedPayload(_StrictBase):
+    """Payload for run_completed events. Emitted once, at the end of a successful run."""
+
+    status: Literal["ok"]
+    duration_ms: int
+    event_count: int
+
+
+class RunAbortedPayload(_StrictBase):
+    """Payload for run_aborted events. Emitted once, at the end of a failed or cancelled run."""
+
+    reason: str
+    error_type: str | None
+    duration_ms: int
+    event_count: int
+
+
+class AgentMessagePayload(_StrictBase):
+    """Payload for agent_message events. The agent's textual output."""
+
+    text: str
+
+
+class GatewayIntentLoggedPayload(_StrictBase):
+    """Payload: gateway_intent_logged events.Records gateway observed a tool call before routed."""
+
+    call_id: str
+
+
+class ToolErrorPayload(_StrictBase):
+    """Payload for tool_error events. A tool invocation that failed."""
+
+    call_id: str
+    error_type: str
+    message: str
+
+
+class FrameworkNotePayload(_StrictBase):
+    """Payload for framework_note events. Diagnostic instrumentation, not a domain event."""
+
+    text: str
+    level: Literal["debug", "info", "warning"]
+
 class _EventBase(BaseModel):
     """Base class for all trace events.
 
@@ -86,9 +130,58 @@ class ToolResultEvent(_EventBase):
     event: Literal["tool_result"] = "tool_result"
     payload: ToolResultPayload
 
+class RunCompletedEvent(_EventBase):
+    """Emitted once, at the end of a successful run."""
+
+    event: Literal["run_completed"] = "run_completed"
+    payload: RunCompletedPayload
+
+
+class RunAbortedEvent(_EventBase):
+    """Emitted once, at the end of a failed or cancelled run."""
+
+    event: Literal["run_aborted"] = "run_aborted"
+    payload: RunAbortedPayload
+
+
+class AgentMessageEvent(_EventBase):
+    """Emitted by the model adapter for each textual message from the agent."""
+
+    event: Literal["agent_message"] = "agent_message"
+    payload: AgentMessagePayload
+
+
+class GatewayIntentLoggedEvent(_EventBase):
+    """Emitted by the gateway immediately before routing a tool call."""
+
+    event: Literal["gateway_intent_logged"] = "gateway_intent_logged"
+    payload: GatewayIntentLoggedPayload
+
+
+class ToolErrorEvent(_EventBase):
+    """Emitted by the gateway when a tool invocation fails."""
+
+    event: Literal["tool_error"] = "tool_error"
+    payload: ToolErrorPayload
+
+
+class FrameworkNoteEvent(_EventBase):
+    """Emitted by the framework for diagnostic notes that aren't domain events."""
+
+    event: Literal["framework_note"] = "framework_note"
+    payload: FrameworkNotePayload
+
 
 TraceEvent = Annotated[
-    RunStartedEvent | ToolCallEvent | ToolResultEvent,
+    RunStartedEvent
+    | RunCompletedEvent
+    | RunAbortedEvent
+    | AgentMessageEvent
+    | ToolCallEvent
+    | GatewayIntentLoggedEvent
+    | ToolResultEvent
+    | ToolErrorEvent
+    | FrameworkNoteEvent,
     Field(discriminator="event"),
 ]
 """The discriminated union of all event types in the schema.
