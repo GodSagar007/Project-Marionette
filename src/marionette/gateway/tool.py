@@ -45,14 +45,18 @@ class ToolError(Exception):
         self.cause = cause
 
 
-class Tool(ABC):
+class Tool[ArgsT: BaseModel, ResultT: BaseModel](ABC):
     """Abstract base class for tools that the agent can invoke.
+
+    Generic over the argument and result types. Concrete tools specialize
+    these — e.g. `class EchoTool(Tool[EchoArgs, EchoResult])` — which gives
+    the gateway static knowledge of each tool's exact schemas.
 
     Subclasses must declare:
         name: stable identifier the agent uses to invoke the tool
         description: human-readable explanation shown to the LLM
-        args_schema: pydantic model for arguments
-        result_schema: pydantic model for the return value
+        args_schema: pydantic model class for arguments
+        result_schema: pydantic model class for the return value
 
     And must implement:
         run(args): the actual tool behavior
@@ -60,11 +64,11 @@ class Tool(ABC):
 
     name: str
     description: str
-    args_schema: type[BaseModel]
-    result_schema: type[BaseModel]
+    args_schema: type[ArgsT]
+    result_schema: type[ResultT]
 
     @abstractmethod
-    def run(self, args: BaseModel) -> BaseModel:
+    def run(self, args: ArgsT) -> ResultT:
         """Execute the tool's behavior with validated arguments.
 
         Args:
