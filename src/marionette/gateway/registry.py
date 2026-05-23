@@ -4,7 +4,7 @@ Holds the mapping from tool name to Tool instance. Responsible only for
 storage and retrieval — error semantics (what a missing tool means) live
 in the gateway, not here.
 """
-from pydantic import BaseModel
+from typing import Any
 
 from marionette.gateway.tool import Tool
 
@@ -18,9 +18,9 @@ class ToolRegistry:
 
     def __init__(self) -> None:
         """Create an empty registry."""
-        self._tools: dict[str, Tool[BaseModel, BaseModel]] = {}
+        self._tools: dict[str, Tool[Any, Any]] = {}
 
-    def register(self, tool: Tool[BaseModel, BaseModel]) -> None:
+    def register(self, tool: Tool[Any, Any]) -> None:
         """Register a tool under its own declared name.
 
         Args:
@@ -34,7 +34,7 @@ class ToolRegistry:
             raise ValueError(f"a tool named {tool.name!r} is already registered")
         self._tools[tool.name] = tool
 
-    def lookup(self, name: str) -> Tool[BaseModel, BaseModel] | None:
+    def lookup(self, name: str) -> Tool[Any, Any] | None:
         """Return the tool registered under `name`, or None if not found.
 
         Args:
