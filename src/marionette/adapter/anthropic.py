@@ -11,7 +11,15 @@ class — none of the framework's other components change.
 
 from typing import Any, cast
 
-from anthropic import Anthropic
+from anthropic import (
+    Anthropic,
+    APIConnectionError,
+    APIStatusError,
+    APITimeoutError,
+    AuthenticationError,
+    BadRequestError,
+    RateLimitError,
+)
 from anthropic.types import Message as AnthropicMessage
 from anthropic.types import TextBlock, ToolUseBlock
 
@@ -26,6 +34,39 @@ from marionette.adapter.conversation import (
 from marionette.gateway.tool import Tool
 
 
+class AdapterErrorType:
+    """Canonical error_type values for AdapterError.
+
+    These categorize *why* an API call failed, so the runner can record the
+    failure mode in the trace and decide whether the run is recoverable.
+    """
+
+    AUTH = "auth"                              # invalid or missing API key
+    BAD_REQUEST = "bad_request"                # malformed payload (likely a bug)
+    RATE_LIMIT_EXHAUSTED = "rate_limit_exhausted"  # retries exhausted on 429/529
+    NETWORK = "network"                        # connection/timeout failure
+    UNKNOWN = "unknown"                        # any other API failure
+
+
+class AdapterError(Exception):
+    """Raised by the adapter when an API call fails.
+
+    Carries an error_type from AdapterErrorType so the runner can record the
+    category in a run_aborted event. The runner typically catches this once,
+    emits run_aborted, and exits — adapter failures are run-level events, not
+    in-loop ones.
+    """
+
+    def __init__(
+        self,
+        error_type: str,
+        message: str,
+        cause: Exception | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.error_type = error_type
+        self.message = message
+        self.cause = cause
 def to_anthropic_tool_spec(tool: Tool[Any, Any]) -> dict[str, Any]:
     """Convert a Marionette Tool into Anthropic's tool-definition dict.
 
@@ -170,12 +211,50 @@ class AnthropicAdapter:
 
         Returns:
             A Turn with the model's text output and any tool calls it requested.
+
+        Raises:
+            AdapterError: If the API call fails. The error_type categorizes the
+                failure (auth, bad_request, rate_limit_exhausted, network, unknown).
+                Adapter failures are run-level: the runner should record and exit,
+                not retry the whole call.
         """
-        response = self._client.messages.create(
-            model=self._model,
-            max_tokens=self._max_tokens,
-            system=conversation.system,
-            messages=cast(Any, _to_anthropic_messages(conversation)),
-            tools=cast(Any,self._tool_specs),
-        )
+        try:
+            response = self._client.messages.create(
+                model=self._model,
+                max_tokens=self._max_tokens,
+                system=conversation.system,
+                messages=cast(Any, _to_anthropic_messages(conversation)),
+                tools=cast(Any, self._tool_specs),
+            )
+        except AuthenticationError as e:
+            raise AdapterError(
+                error_type=AdapterErrorType.AUTH,
+                message=f"authentication failed: {e}",
+                cause=e,
+            ) from e
+        except BadRequestError as e:
+            raise AdapterError(
+                error_type=AdapterErrorType.BAD_REQUEST,
+                message=f"bad request: {e}",
+                cause=e,
+            ) from e
+        except RateLimitError as e:
+            raise AdapterError(
+                error_type=AdapterErrorType.RATE_LIMIT_EXHAUSTED,
+                message=f"rate limit exhausted after retries: {e}",
+                cause=e,
+            ) from e
+        except (APIConnectionError, APITimeoutError) as e:
+            raise AdapterError(
+                error_type=AdapterErrorType.NETWORK,
+                message=f"network failure: {e}",
+                cause=e,
+            ) from e
+        except APIStatusError as e:
+            raise AdapterError(
+                error_type=AdapterErrorType.UNKNOWN,
+                message=f"API error: {e}",
+                cause=e,
+            ) from e
+
         return _parse_response(response)
