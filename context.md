@@ -102,3 +102,38 @@ Main branch: `main`. Direct commits to main are fine while solo.
 
 Once contributors arrive, switch to PR-only.
 
+Phase 2 (Engine): STEEL THREAD ONE COMPLETE.
+
+All five components built and tested:
+- Trace system (schema, writer, reader) — 25 tests
+- Tool gateway (Tool ABC, registry, gateway core) — 17 tests
+- Adapter (Anthropic SDK, conversation types, translation, error handling) — 17 tests
+- Runner (agent loop, lifecycle events, CLI) — 8 tests
+
+Framework runs end-to-end via:
+  uv run python -m marionette echo-smoke --model <id>
+
+### What's next when resuming
+
+The steel thread is closed. Next decisions are about *what to build with it*.
+Three reasonable directions:
+
+1. **Run thread one for real** — set an API key, run echo-smoke against
+   several models (haiku, sonnet, opus), inspect the traces, write up
+   what the framework actually produces. This is the validation pass:
+   does the trace make sense to read? Are there obvious holes in what
+   we record? Worth doing before building more — implementation feedback
+   from real runs always reveals things the design didn't anticipate.
+
+2. **Begin a second steel thread** — extract the Adapter protocol, add
+   a second provider (OpenAI), refactor to thread-aware abstractions.
+   Builds toward multi-provider studies.
+
+3. **Move toward the real research scenario** — start implementing the
+   features sandbagging-under-evaluation requires (three-condition
+   tool-description swap, per-trial seed recording, judge layer hookup).
+   Builds toward Phase 4.
+
+Recommend (1) first — always validate the existing thread against reality
+before adding more. Bugs found by running take an hour to fix; the same
+bugs found by users after publication take months.
