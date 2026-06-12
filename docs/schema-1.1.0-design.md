@@ -371,7 +371,7 @@ Test doubles (`ScriptedAdapter`, `FakeAdapter` in runner tests) populate
 these with sensible defaults; existing fakes need small updates to set
 them.
 
-### Provider variation
+### Provider Variation
 
 Token-usage shape differs across providers:
 
