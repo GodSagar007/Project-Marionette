@@ -9,12 +9,12 @@ Schema is versioned. Evolution is by addition only within a major version:
 new fields and new event types are non-breaking. Field removal, renaming, or
 semantic changes require a major version bump.
 """
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-SCHEMA_VERSION = "1.0.0"
+SCHEMA_VERSION = "1.1.0"
 
 class _StrictBase(BaseModel):
     """Base class for all trace payloads.
@@ -45,13 +45,14 @@ class ToolCallPayload(_StrictBase):
     tool: str
     call_id: str
     args: dict[str, Any]
-
+    turn_id: str | None = None
 
 class ToolResultPayload(_StrictBase):
     """Payload for tool_result events. The actual return from a tool execution."""
 
     call_id: str
     result: Any
+    turn_id: str | None = None
 
 class RunCompletedPayload(_StrictBase):
     """Payload for run_completed events. Emitted once, at the end of a successful run."""
@@ -74,13 +75,13 @@ class AgentMessagePayload(_StrictBase):
     """Payload for agent_message events. The agent's textual output."""
 
     text: str
-
+    turn_id: str | None = None
 
 class GatewayIntentLoggedPayload(_StrictBase):
     """Payload: gateway_intent_logged events.Records gateway observed a tool call before routed."""
 
     call_id: str
-
+    turn_id: str | None = None
 
 class ToolErrorPayload(_StrictBase):
     """Payload for tool_error events. A tool invocation that failed."""
@@ -88,7 +89,7 @@ class ToolErrorPayload(_StrictBase):
     call_id: str
     error_type: str
     message: str
-
+    turn_id: str | None = None
 
 class FrameworkNotePayload(_StrictBase):
     """Payload for framework_note events. Diagnostic instrumentation, not a domain event."""
@@ -105,8 +106,8 @@ class _EventBase(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    seq: int
-    ts: datetime
+    seq: int = 0
+    ts: datetime = Field(default_factory=lambda: datetime.now(UTC))
     actor: str
 
 

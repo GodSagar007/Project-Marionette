@@ -175,12 +175,13 @@ def run(
         try:
             for _turn_number in range(MAX_TURNS):
                 turn = adapter.get_turn(conversation)
+                turn_id = uuid.uuid4().hex[:12]
 
                 # Record the model's textual output, if any.
                 if turn.text:
                     writer.write(AgentMessageEvent(
                         actor="agent",
-                        payload=AgentMessagePayload(text=turn.text),
+                        payload=AgentMessagePayload(text=turn.text,turn_id=turn_id,),
                     ))
                     event_count += 1
 
@@ -208,6 +209,7 @@ def run(
                             tool=tool_use.tool,
                             call_id=tool_use.call_id,
                             args=tool_use.args,
+                        turn_id=turn_id,
                         ),
                     ))
                     event_count += 1
@@ -216,6 +218,7 @@ def run(
                         tool_name=tool_use.tool,
                         call_id=tool_use.call_id,
                         raw_args=tool_use.args,
+                    turn_id=turn_id,
                     )
                     # The gateway has already written gateway_intent_logged +
                     # tool_result/tool_error; we counted those in writer side-effects

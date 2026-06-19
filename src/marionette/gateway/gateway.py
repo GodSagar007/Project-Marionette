@@ -46,6 +46,7 @@ class Gateway:
         tool_name: str,
         call_id: str,
         raw_args: dict[str, Any],
+    turn_id: str | None = None,
     ) -> BaseModel | None:
         """Route a tool call: log intent, validate, run, log outcome.
 
@@ -67,7 +68,10 @@ class Gateway:
         self._writer.write(
             GatewayIntentLoggedEvent(
                 actor="framework",
-                payload=GatewayIntentLoggedPayload(call_id=call_id),
+                payload=GatewayIntentLoggedPayload(
+            call_id=call_id,
+                turn_id=turn_id,
+        ),
             )
         )
 
@@ -80,6 +84,7 @@ class Gateway:
                     error_type=ToolErrorType.UNKNOWN_TOOL,
                     message=f"no tool named {tool_name!r} is registered",
                 ),
+            turn_id=turn_id,
             )
             return None
 
@@ -94,6 +99,7 @@ class Gateway:
                     message=f"invalid arguments for tool {tool_name!r}: {e}",
                     cause=e,
                 ),
+            turn_id=turn_id,
             )
             return None
 
@@ -108,6 +114,7 @@ class Gateway:
                     message=f"tool {tool_name!r} raised: {e}",
                     cause=e,
                 ),
+            turn_id=turn_id,
             )
             return None
 
@@ -118,6 +125,7 @@ class Gateway:
                 payload=ToolResultPayload(
                     call_id=call_id,
                     result=result.model_dump(),
+                turn_id=turn_id,
                 ),
             )
         )
@@ -125,7 +133,7 @@ class Gateway:
         # Step 6 — return the result to the caller.
         return result
 
-    def _handle_error(self, call_id: str, error: ToolError) -> None:
+    def _handle_error(self, call_id: str, error: ToolError,turn_id: str | None = None,) -> None:
         """Write a tool_error event for a failed call.
 
         Centralizes error logging so route() stays readable: each failure
@@ -142,6 +150,7 @@ class Gateway:
                     call_id=call_id,
                     error_type=error.error_type,
                     message=error.message,
+            turn_id=turn_id,
                 ),
             )
         )
