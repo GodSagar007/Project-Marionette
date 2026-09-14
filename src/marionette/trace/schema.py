@@ -26,6 +26,17 @@ class _StrictBase(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
+class ToolManifestEntry(_StrictBase):
+    """One tool as it was presented to the agent at run start.
+
+    Records the contract, not the usage. Lets an analyst reconstruct what the
+    agent could have done, not just what it did.
+    """
+
+    name: str
+    description: str
+    args_schema: dict[str, Any]
+    result_schema: dict[str, Any]
 
 class RunStartedPayload(_StrictBase):
     """Payload for the run_started event. Emitted once, at the start of each run."""
@@ -37,6 +48,7 @@ class RunStartedPayload(_StrictBase):
     seed: int
     framework_version: str
     dev_mode: bool
+    tools_manifest: list[ToolManifestEntry] = Field(default_factory=list)
 
 
 class ToolCallPayload(_StrictBase):

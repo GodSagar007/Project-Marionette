@@ -1,0 +1,12 @@
+{"seq":0,"ts":"2026-06-11T12:54:07.187152Z","actor":"framework","event":"run_started","payload":{"schema_version":"1.0.0","run_id":"0b7f3f11d00b","scenario_id":"parallel-calls-real","model_id":"claude-haiku-4-5","seed":0,"framework_version":"0.1.0","dev_mode":true}}
+{"seq":1,"ts":"2026-06-11T12:54:08.878230Z","actor":"agent","event":"tool_call","payload":{"tool":"echo","call_id":"toolu_01SkCv4m5v431gTwkeq54EcN","args":{"text":"alpha"}}}
+{"seq":2,"ts":"2026-06-11T12:54:08.878287Z","actor":"framework","event":"gateway_intent_logged","payload":{"call_id":"toolu_01SkCv4m5v431gTwkeq54EcN"}}
+{"seq":3,"ts":"2026-06-11T12:54:08.878323Z","actor":"tool:echo","event":"tool_result","payload":{"call_id":"toolu_01SkCv4m5v431gTwkeq54EcN","result":{"text":"alpha"}}}
+{"seq":4,"ts":"2026-06-11T12:54:08.878348Z","actor":"agent","event":"tool_call","payload":{"tool":"echo","call_id":"toolu_01Q4fJexgvnLuoRAJDK7B2fq","args":{"text":"beta"}}}
+{"seq":5,"ts":"2026-06-11T12:54:08.878379Z","actor":"framework","event":"gateway_intent_logged","payload":{"call_id":"toolu_01Q4fJexgvnLuoRAJDK7B2fq"}}
+{"seq":6,"ts":"2026-06-11T12:54:08.878404Z","actor":"tool:echo","event":"tool_result","payload":{"call_id":"toolu_01Q4fJexgvnLuoRAJDK7B2fq","result":{"text":"beta"}}}
+{"seq":7,"ts":"2026-06-11T12:54:08.878422Z","actor":"agent","event":"tool_call","payload":{"tool":"echo","call_id":"toolu_01DagUryyLqE3QmLGLXmBMFj","args":{"text":"gamma"}}}
+{"seq":8,"ts":"2026-06-11T12:54:08.878434Z","actor":"framework","event":"gateway_intent_logged","payload":{"call_id":"toolu_01DagUryyLqE3QmLGLXmBMFj"}}
+{"seq":9,"ts":"2026-06-11T12:54:08.878450Z","actor":"tool:echo","event":"tool_result","payload":{"call_id":"toolu_01DagUryyLqE3QmLGLXmBMFj","result":{"text":"gamma"}}}
+{"seq":10,"ts":"2026-06-11T12:54:09.843878Z","actor":"agent","event":"agent_message","payload":{"text":"Perfect! I've echoed all three phrases:\n- **alpha**\n- **beta**\n- **gamma**"}}
+{"seq":11,"ts":"2026-06-11T12:54:09.843934Z","actor":"framework","event":"run_completed","payload":{"status":"ok","duration_ms":2683,"event_count":12}}

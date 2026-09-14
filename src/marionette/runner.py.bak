@@ -38,7 +38,6 @@ from marionette.trace.schema import (
     RunStartedPayload,
     ToolCallEvent,
     ToolCallPayload,
-    ToolManifestEntry,
 )
 from marionette.trace.writer import TraceWriter
 
@@ -145,15 +144,7 @@ def run(
     status: Literal["ok", "aborted"] = "ok"
     abort_reason: str | None = None
     event_count = 0
-    manifest = [
-        ToolManifestEntry(
-            name=tool.name,
-            description=tool.description,
-            args_schema=tool.args_schema.model_json_schema(),
-            result_schema=tool.result_schema.model_json_schema(),
-        )
-        for tool in sorted(scenario.tools, key=lambda t: t.name)
-    ]
+
     with TraceWriter(trace_path) as writer:
         # Emit run_started immediately, before anything else can fail.
         writer.write(RunStartedEvent(
@@ -166,7 +157,6 @@ def run(
                 seed=seed,
                 framework_version=FRAMEWORK_VERSION,
                 dev_mode=dev_mode,
-                tools_manifest=manifest,
             ),
         ))
         event_count += 1
@@ -185,7 +175,7 @@ def run(
         try:
             for _turn_number in range(MAX_TURNS):
                 turn = adapter.get_turn(conversation)
-                turn_id = uuid.uuid4().hex[:12]
+		turn_id = uuid.uuid4().hex[:12]
 
                 # Record the model's textual output, if any.
                 if turn.text:
@@ -219,7 +209,7 @@ def run(
                             tool=tool_use.tool,
                             call_id=tool_use.call_id,
                             args=tool_use.args,
-                        turn_id=turn_id,
+            		    turn_id=turn_id,
                         ),
                     ))
                     event_count += 1
@@ -228,7 +218,7 @@ def run(
                         tool_name=tool_use.tool,
                         call_id=tool_use.call_id,
                         raw_args=tool_use.args,
-                    turn_id=turn_id,
+            		turn_id=turn_id,
                     )
                     # The gateway has already written gateway_intent_logged +
                     # tool_result/tool_error; we counted those in writer side-effects

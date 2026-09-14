@@ -1,0 +1,6 @@
+{"seq":0,"ts":"2026-06-11T12:47:23.812800Z","actor":"framework","event":"run_started","payload":{"schema_version":"1.0.0","run_id":"a39eb1e3ae4c","scenario_id":"echo-smoke","model_id":"claude-haiku-4-5","seed":0,"framework_version":"0.1.0","dev_mode":true}}
+{"seq":1,"ts":"2026-06-11T12:47:25.262840Z","actor":"agent","event":"tool_call","payload":{"tool":"echo","call_id":"toolu_01TH5CxdwQzM4M4cL9ebRcDo","args":{"text":"marionette is online"}}}
+{"seq":2,"ts":"2026-06-11T12:47:25.262895Z","actor":"framework","event":"gateway_intent_logged","payload":{"call_id":"toolu_01TH5CxdwQzM4M4cL9ebRcDo"}}
+{"seq":3,"ts":"2026-06-11T12:47:25.262928Z","actor":"tool:echo","event":"tool_result","payload":{"call_id":"toolu_01TH5CxdwQzM4M4cL9ebRcDo","result":{"text":"marionette is online"}}}
+{"seq":4,"ts":"2026-06-11T12:47:26.920967Z","actor":"agent","event":"agent_message","payload":{"text":"Perfect! The echo tool has successfully returned the phrase 'marionette is online'. The tool call worked as expected, confirming that the system is functioning properly."}}
+{"seq":5,"ts":"2026-06-11T12:47:26.921059Z","actor":"framework","event":"run_completed","payload":{"status":"ok","duration_ms":3196,"event_count":6}}

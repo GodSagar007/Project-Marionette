@@ -1,0 +1,10 @@
+{"seq":0,"ts":"2026-06-09T18:53:35.943574Z","actor":"framework","event":"run_started","payload":{"schema_version":"1.0.0","run_id":"11113adfed91","scenario_id":"parallel-calls-validation","model_id":"scripted-parallel","seed":0,"framework_version":"0.1.0","dev_mode":true}}
+{"seq":1,"ts":"2026-06-09T18:53:35.943723Z","actor":"agent","event":"agent_message","payload":{"text":"I'll echo both phrases in parallel."}}
+{"seq":2,"ts":"2026-06-09T18:53:35.943791Z","actor":"agent","event":"tool_call","payload":{"tool":"echo","call_id":"call_alpha","args":{"text":"alpha"}}}
+{"seq":3,"ts":"2026-06-09T18:53:35.943816Z","actor":"framework","event":"gateway_intent_logged","payload":{"call_id":"call_alpha"}}
+{"seq":4,"ts":"2026-06-09T18:53:35.943852Z","actor":"tool:echo","event":"tool_result","payload":{"call_id":"call_alpha","result":{"text":"alpha"}}}
+{"seq":5,"ts":"2026-06-09T18:53:35.943894Z","actor":"agent","event":"tool_call","payload":{"tool":"echo","call_id":"call_beta","args":{"text":"beta"}}}
+{"seq":6,"ts":"2026-06-09T18:53:35.943913Z","actor":"framework","event":"gateway_intent_logged","payload":{"call_id":"call_beta"}}
+{"seq":7,"ts":"2026-06-09T18:53:35.943932Z","actor":"tool:echo","event":"tool_result","payload":{"call_id":"call_beta","result":{"text":"beta"}}}
+{"seq":8,"ts":"2026-06-09T18:53:35.943973Z","actor":"agent","event":"agent_message","payload":{"text":"Both echoes returned successfully. Task complete."}}
+{"seq":9,"ts":"2026-06-09T18:53:35.943994Z","actor":"framework","event":"run_completed","payload":{"status":"ok","duration_ms":1,"event_count":10}}
