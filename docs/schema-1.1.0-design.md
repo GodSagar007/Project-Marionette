@@ -304,7 +304,7 @@ class ModelResponsePayload(_StrictBase):
     """Per-API-call metadata. Emitted once per adapter.get_turn() call."""
 
     turn_id: str                     # required — links to the turn's other events
-    usage: TokenUsage                # required — the reason this event exists
+    usage: TokenUsage | None = None  # None = provider did not report usage
     stop_reason: str                 # required — "end_turn" / "tool_use" / "max_tokens" / etc.
     duration_ms: int                 # required — wall-clock for this API call
 
@@ -362,7 +362,7 @@ grows new fields:
 class Turn(BaseModel):
     text: str
     tool_uses: list[ToolUseContent] = Field(default_factory=list)
-    usage: TokenUsage                    # ← new, required
+    usage: TokenUsage | None = None      # ← new, nullable
     stop_reason: str                     # ← new, required
     duration_ms: int                     # ← new, required
 
@@ -378,6 +378,28 @@ from anything happening in the runner's loop.
 Test doubles (`ScriptedAdapter`, `FakeAdapter` in runner tests) populate
 these with sensible defaults; existing fakes need small updates to set
 them.
+
+### Why `usage` is nullable
+
+Not every provider reports token counts. Raw HTTP endpoints and
+self-hosted inference servers often report nothing, and forcing a
+required field would mean fabricating zeros for them.
+
+Zeros and absence are different claims. `input_tokens=0` asserts the
+call consumed no input tokens; `None` asserts the provider did not say.
+A trace that records the first when it means the second produces cost
+analyses that are silently wrong rather than visibly incomplete — the
+failure mode METHODOLOGY.md's discipline exists to prevent.
+
+`stop_reason` and `duration_ms` stay required. `duration_ms` is always
+knowable because the adapter measures it locally; `stop_reason` always
+has the `"unknown"` fallback. Only `usage` is genuinely unobtainable
+from some providers.
+
+Consequence for analysis: "sum tokens across all `model_response`
+events" must skip events where usage is None, and report coverage
+alongside the total — otherwise a partially-instrumented run looks
+like a cheap one.
 
 ### Provider Variation
 
