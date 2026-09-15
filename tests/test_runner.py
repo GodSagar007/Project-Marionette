@@ -19,6 +19,13 @@ from marionette.runner import MAX_TURNS, Scenario, run
 from marionette.tools.echo import EchoTool
 from marionette.trace.reader import TraceReader
 
+
+def make_turn(**kwargs: object) -> Turn:
+    """Build a Turn with test defaults for the call-metadata fields."""
+    kwargs.setdefault("stop_reason", "end_turn")
+    kwargs.setdefault("duration_ms", 0)
+    return Turn(**kwargs)  # type: ignore[arg-type]
+
 # --- Fake adapter ---
 
 class FakeAdapter:
@@ -90,7 +97,7 @@ def test_single_turn_run_produces_clean_trace(tmp_path: Path) -> None:
     """A run where the model finishes in one turn produces run_started,
 
     agent_message, run_completed."""
-    fake = FakeAdapter(turns=[Turn(text="task complete")])
+    fake = FakeAdapter(turns=[make_turn(text="task complete")])
     result = run(
         scenario=_make_scenario(),
         model="claude-test",
@@ -110,7 +117,7 @@ def test_single_turn_run_produces_clean_trace(tmp_path: Path) -> None:
 
 def test_run_result_carries_run_metadata(tmp_path: Path) -> None:
     """RunResult exposes run_id, duration, and the trace path."""
-    fake = FakeAdapter(turns=[Turn(text="ok")])
+    fake = FakeAdapter(turns=[make_turn(text="ok")])
     result = run(
         scenario=_make_scenario(),
         model="claude-test",
@@ -130,12 +137,12 @@ def test_run_with_tool_call_routes_through_gateway(tmp_path: Path) -> None:
     """A run that includes a tool call produces the full event sequence."""
     fake = FakeAdapter(turns=[
         # Turn 1: model requests a tool call.
-        Turn(
+        make_turn(
             text="I'll use the echo tool.",
             tool_uses=[ToolUseContent(call_id="c1", tool="echo", args={"text": "hi"})],
         ),
         # Turn 2: model concludes after seeing the result.
-        Turn(text="Echo returned 'hi'. Task complete."),
+        make_turn(text="Echo returned 'hi'. Task complete."),
     ])
     result = run(
         scenario=_make_scenario(),
@@ -165,11 +172,11 @@ def test_run_with_tool_call_routes_through_gateway(tmp_path: Path) -> None:
 def test_run_with_tool_call_passes_result_back_to_model(tmp_path: Path) -> None:
     """The tool result is included in the next conversation passed to get_turn."""
     fake = FakeAdapter(turns=[
-        Turn(
+        make_turn(
             text="using echo",
             tool_uses=[ToolUseContent(call_id="c1", tool="echo", args={"text": "hi"})],
         ),
-        Turn(text="done"),
+        make_turn(text="done"),
     ])
     run(
         scenario=_make_scenario(),
@@ -221,7 +228,7 @@ def test_adapter_error_produces_run_aborted(tmp_path: Path) -> None:
 def test_max_turns_triggers_run_aborted(tmp_path: Path) -> None:
     """A model that never stops requesting tools hits MAX_TURNS and aborts."""
     # Every turn requests a tool — the loop will never naturally finish.
-    looping_turn = Turn(
+    looping_turn = make_turn(
         text="going again",
         tool_uses=[ToolUseContent(call_id="c1", tool="echo", args={"text": "again"})],
     )
@@ -261,7 +268,7 @@ def test_run_started_is_always_first_event(tmp_path: Path) -> None:
 
 def test_terminal_event_is_always_last(tmp_path: Path) -> None:
     """Every trace ends with either run_completed or run_aborted, never anything else."""
-    fake = FakeAdapter(turns=[Turn(text="done")])
+    fake = FakeAdapter(turns=[make_turn(text="done")])
     result = run(
         scenario=_make_scenario(),
         model="claude-test",
@@ -277,7 +284,7 @@ def test_terminal_event_is_always_last(tmp_path: Path) -> None:
 
 def test_trace_lands_at_expected_path(tmp_path: Path) -> None:
     """Trace path follows the runs/{scenario}/{model}/{run_id}.jsonl convention."""
-    fake = FakeAdapter(turns=[Turn(text="ok")])
+    fake = FakeAdapter(turns=[make_turn(text="ok")])
     result = run(
         scenario=_make_scenario(),
         model="claude-test-model",

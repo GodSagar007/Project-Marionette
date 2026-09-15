@@ -123,7 +123,7 @@ class ModelResponsePayload(_StrictBase):
     """Per-API-call metadata. Emitted once per adapter.get_turn() call."""
 
     turn_id: str
-    usage: TokenUsage
+    usage: TokenUsage | None = None
     stop_reason: str
     duration_ms: int
 

@@ -9,6 +9,7 @@ a sibling module (e.g. openai.py) with its own translation functions and adapter
 class — none of the framework's other components change.
 """
 
+import time
 from typing import Any, cast
 
 from anthropic import (
@@ -32,6 +33,7 @@ from marionette.adapter.conversation import (
     Turn,
 )
 from marionette.gateway.tool import Tool
+from marionette.trace.schema import TokenUsage
 
 
 class AdapterErrorType:
@@ -142,7 +144,7 @@ def _to_anthropic_messages(conversation: Conversation) -> list[dict[str, Any]]:
     ]
 
 
-def _parse_response(response: AnthropicMessage) -> Turn:
+def _parse_response(response: AnthropicMessage, duration_ms: int) -> Turn:
     """Parse an Anthropic response into our Turn.
 
     Walks Anthropic's content blocks, accumulating text and tool_use blocks.
@@ -165,7 +167,19 @@ def _parse_response(response: AnthropicMessage) -> Turn:
             )
         # Other block types (thinking, etc.) are deferred — see schema deferrals.
 
-    return Turn(text="\n".join(text_parts), tool_uses=tool_uses)
+    u = response.usage
+    return Turn(
+        text="\n".join(text_parts),
+        tool_uses=tool_uses,
+        usage=TokenUsage(
+            input_tokens=u.input_tokens,
+            output_tokens=u.output_tokens,
+            cache_read_tokens=getattr(u, "cache_read_input_tokens", 0) or 0,
+            cache_write_tokens=getattr(u, "cache_creation_input_tokens", 0) or 0,
+        ),
+        stop_reason=response.stop_reason or "unknown",
+        duration_ms=duration_ms,
+    )
 
 
 class AnthropicAdapter:
@@ -218,6 +232,7 @@ class AnthropicAdapter:
                 Adapter failures are run-level: the runner should record and exit,
                 not retry the whole call.
         """
+        start = time.monotonic()
         try:
             response = self._client.messages.create(
                 model=self._model,
@@ -257,4 +272,5 @@ class AnthropicAdapter:
                 cause=e,
             ) from e
 
-        return _parse_response(response)
+        duration_ms = int((time.monotonic() - start) * 1000)
+        return _parse_response(response, duration_ms)

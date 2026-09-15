@@ -11,6 +11,8 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from marionette.trace.schema import TokenUsage
+
 
 class TextContent(BaseModel):
     """A block of text content within a message."""
@@ -92,6 +94,9 @@ class Turn(BaseModel):
 
     text: str
     tool_uses: list[ToolUseContent] = Field(default_factory=list)
+    usage: TokenUsage | None = None
+    stop_reason: str
+    duration_ms: int
 
     @property
     def wants_tools(self) -> bool:
