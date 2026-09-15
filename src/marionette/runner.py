@@ -30,6 +30,8 @@ from marionette.trace.schema import (
     SCHEMA_VERSION,
     AgentMessageEvent,
     AgentMessagePayload,
+    ModelResponseEvent,
+    ModelResponsePayload,
     RunAbortedEvent,
     RunAbortedPayload,
     RunCompletedEvent,
@@ -194,7 +196,16 @@ def run(
                         payload=AgentMessagePayload(text=turn.text,turn_id=turn_id,),
                     ))
                     event_count += 1
-
+                writer.write(ModelResponseEvent(
+                    actor="framework",
+                    payload=ModelResponsePayload(
+                        turn_id=turn_id,
+                        usage=turn.usage,
+                        stop_reason=turn.stop_reason,
+                        duration_ms=turn.duration_ms,
+                    ),
+                ))
+                event_count += 1
                 # If no tool calls, the model is done.
                 if not turn.wants_tools:
                     break

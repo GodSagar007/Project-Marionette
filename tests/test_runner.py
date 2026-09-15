@@ -18,6 +18,7 @@ from marionette.adapter.conversation import Conversation, ToolUseContent, Turn
 from marionette.runner import MAX_TURNS, Scenario, run
 from marionette.tools.echo import EchoTool
 from marionette.trace.reader import TraceReader
+from marionette.trace.schema import TokenUsage
 
 
 def make_turn(**kwargs: object) -> Turn:
@@ -96,7 +97,7 @@ def _read_events(path: Path) -> list[tuple[int, str, str]]:
 def test_single_turn_run_produces_clean_trace(tmp_path: Path) -> None:
     """A run where the model finishes in one turn produces run_started,
 
-    agent_message, run_completed."""
+    agent_message, model_response, run_completed."""
     fake = FakeAdapter(turns=[make_turn(text="task complete")])
     result = run(
         scenario=_make_scenario(),
@@ -111,8 +112,9 @@ def test_single_turn_run_produces_clean_trace(tmp_path: Path) -> None:
     events = _read_events(result.trace_path)
     assert events[0][1] == "run_started"
     assert events[1] == (1, "agent_message", "agent")
-    assert events[2][1] == "run_completed"
-    assert len(events) == 3
+    assert events[2][1] == "model_response"
+    assert events[3][1] == "run_completed"
+    assert len(events) == 4
 
 
 def test_run_result_carries_run_metadata(tmp_path: Path) -> None:
@@ -161,10 +163,12 @@ def test_run_with_tool_call_routes_through_gateway(tmp_path: Path) -> None:
     assert event_types == [
         "run_started",
         "agent_message",
+        "model_response",
         "tool_call",
         "gateway_intent_logged",
         "tool_result",
         "agent_message",
+        "model_response",
         "run_completed",
     ]
 
@@ -295,3 +299,24 @@ def test_trace_lands_at_expected_path(tmp_path: Path) -> None:
     expected_dir = tmp_path / "test-scenario" / "claude-test-model"
     assert result.trace_path.parent == expected_dir
     assert result.trace_path.name.endswith(".jsonl")
+
+
+def test_model_response_carries_turn_metadata(tmp_path: Path) -> None:
+    """model_response records the adapter's usage, stop_reason, and duration."""
+    fake = FakeAdapter(turns=[
+        make_turn(
+            text="done",
+            usage=TokenUsage(input_tokens=100, output_tokens=25),
+            stop_reason="end_turn",
+            duration_ms=1234,
+        )
+    ])
+    result = run(
+        scenario=_make_scenario(),
+        model="claude-test",
+        output_root=tmp_path,
+        adapter=_as_adapter(fake),
+    )
+
+    events = _read_events(result.trace_path)
+    assert [e[1] for e in events].count("model_response") == 1
