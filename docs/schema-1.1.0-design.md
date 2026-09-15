@@ -235,6 +235,14 @@ The schema includes the field so future judge layers can write into trace
 events. The field's *presence* signals "this dimension exists"; its
 *value* remains `None` until classified.
 
+Note on how a judge writes classifications: not by mutating events in
+place. Payloads are frozen (`_StrictBase` sets `frozen=True`) and traces
+are append-only JSONL, so an existing `agent_message` event cannot be
+edited after the fact. A judge layer therefore either emits a derived
+annotated trace as a separate artifact, or emits annotation events that
+reference originals by `seq` or `turn_id`. That choice is deferred to
+thread 4; the `kind` field is the destination either way.
+
 ### Migration
 
 Old traces have no `kind` field. New readers see `None`. Analyses that
