@@ -110,6 +110,23 @@ class FrameworkNotePayload(_StrictBase):
     text: str
     level: Literal["debug", "info", "warning"]
 
+class TokenUsage(_StrictBase):
+    """Token usage reported by the provider for one API call."""
+
+    input_tokens: int
+    output_tokens: int
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
+
+
+class ModelResponsePayload(_StrictBase):
+    """Per-API-call metadata. Emitted once per adapter.get_turn() call."""
+
+    turn_id: str
+    usage: TokenUsage
+    stop_reason: str
+    duration_ms: int
+
 class _EventBase(BaseModel):
     """Base class for all trace events.
 
@@ -185,6 +202,11 @@ class FrameworkNoteEvent(_EventBase):
     event: Literal["framework_note"] = "framework_note"
     payload: FrameworkNotePayload
 
+class ModelResponseEvent(_EventBase):
+    """Records metadata about one API call to the model provider."""
+
+    event: Literal["model_response"] = "model_response"
+    payload: ModelResponsePayload
 
 TraceEvent = Annotated[
     RunStartedEvent
@@ -195,7 +217,8 @@ TraceEvent = Annotated[
     | GatewayIntentLoggedEvent
     | ToolResultEvent
     | ToolErrorEvent
-    | FrameworkNoteEvent,
+    | FrameworkNoteEvent
+    | ModelResponseEvent,
     Field(discriminator="event"),
 ]
 """The discriminated union of all event types in the schema.
