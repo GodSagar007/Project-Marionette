@@ -87,6 +87,7 @@ class AgentMessagePayload(_StrictBase):
     """Payload for agent_message events. The agent's textual output."""
 
     text: str
+    kind: Literal["reasoning", "summary", "final", "other"] | None = None
     turn_id: str | None = None
 
 class GatewayIntentLoggedPayload(_StrictBase):
