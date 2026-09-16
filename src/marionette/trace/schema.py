@@ -14,7 +14,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-SCHEMA_VERSION = "1.1.0"
+SCHEMA_VERSION = "1.2.0"
 
 class _StrictBase(BaseModel):
     """Base class for all trace payloads.
@@ -130,8 +130,12 @@ class ModelResponsePayload(_StrictBase):
 class _EventBase(BaseModel):
     """Base class for all trace events.
 
-    Carries common metadata (seq, ts, actor) shared across all event types.
-    The `event` discriminator field is declared per-subclass as a Literal.
+    Carries common metadata (seq, ts, actor, agent_id) shared across all
+    event types. `actor` names the component that emitted the event
+    (framework, agent, gateway); `agent_id` names *which* agent the event
+    is attributable to. Two agents both have actor="agent" and differ only
+    by agent_id. None means the event is run-level (no agent) or the trace
+    predates 1.2.0.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -139,7 +143,7 @@ class _EventBase(BaseModel):
     seq: int = 0
     ts: datetime = Field(default_factory=lambda: datetime.now(UTC))
     actor: str
-
+    agent_id: str | None = None
 
 class RunStartedEvent(_EventBase):
     """Emitted once, at the very start of each run."""

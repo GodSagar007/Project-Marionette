@@ -76,7 +76,7 @@ def test_v1_0_0_trace_loads_with_new_fields_defaulted(tmp_path: Path) -> None:
     started = events[0]
     assert started.event == "run_started"
     assert started.payload.tools_manifest == []
-
+    assert started.agent_id is None
     msg = events[1]
     assert msg.event == "agent_message"
     assert msg.payload.turn_id is None
@@ -188,3 +188,25 @@ def test_unknown_event_type_is_skipped(tmp_path: Path) -> None:
     assert len(events) == 2
     assert events[0].payload.text == "before"
     assert events[1].payload.text == "after"
+
+def test_agent_id_round_trips(tmp_path: Path) -> None:
+    """agent_id survives write and read, and is distinct from actor."""
+    path = tmp_path / "agents.jsonl"
+
+    with TraceWriter(path) as writer:
+        writer.write(AgentMessageEvent(
+            actor="agent",
+            agent_id="alice",
+            payload=AgentMessagePayload(text="hello", turn_id="t1"),
+        ))
+        writer.write(AgentMessageEvent(
+            actor="agent",
+            agent_id="bob",
+            payload=AgentMessagePayload(text="hi back", turn_id="t2"),
+        ))
+
+    with TraceReader(path) as reader:
+        events = reader.read_all()
+
+    assert [e.agent_id for e in events] == ["alice", "bob"]
+    assert [e.actor for e in events] == ["agent", "agent"]
