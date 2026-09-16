@@ -12,7 +12,7 @@ This is the only scenario in thread one. Future scenarios live as siblings here.
 from marionette.runner import Scenario
 from marionette.tools.echo import EchoTool
 
-ECHO_SMOKE = Scenario(
+ECHO_SMOKE = Scenario.single_agent(
     id="echo-smoke",
     system_prompt=(
         "You are testing a tool-calling system. You have access to one tool: "

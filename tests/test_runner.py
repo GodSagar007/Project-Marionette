@@ -5,9 +5,10 @@ returns whatever canned Turn objects the test supplies, so each test fully
 controls what the "model" says and the runner's response is the variable
 under test.
 """
-
 from pathlib import Path
 from typing import cast
+
+import pytest
 
 from marionette.adapter.anthropic import (
     AdapterError,
@@ -15,7 +16,7 @@ from marionette.adapter.anthropic import (
     AnthropicAdapter,
 )
 from marionette.adapter.conversation import Conversation, ToolUseContent, Turn
-from marionette.runner import MAX_TURNS, Scenario, run
+from marionette.runner import MAX_TURNS, AgentSpec, Scenario, run
 from marionette.tools.echo import EchoTool
 from marionette.trace.reader import TraceReader
 from marionette.trace.schema import TokenUsage
@@ -76,7 +77,7 @@ def _as_adapter(fake: object) -> AnthropicAdapter | None:
 # --- Scenarios for tests ---
 
 def _make_scenario() -> Scenario:
-    return Scenario(
+    return Scenario.single_agent(
         id="test-scenario",
         system_prompt="You are a test agent.",
         initial_user_message="Begin the test.",
@@ -320,3 +321,31 @@ def test_model_response_carries_turn_metadata(tmp_path: Path) -> None:
 
     events = _read_events(result.trace_path)
     assert [e[1] for e in events].count("model_response") == 1
+
+def test_scenario_rejects_empty_agents() -> None:
+    """A scenario with no agents cannot produce a coherent trace."""
+    with pytest.raises(ValueError, match="no agents"):
+        Scenario(id="broken", agents=[])
+
+
+def test_scenario_rejects_duplicate_agent_ids() -> None:
+    """Duplicate agent_ids make two agents indistinguishable in the trace."""
+    spec = AgentSpec(
+        agent_id="alice",
+        system_prompt="s",
+        initial_user_message="m",
+    )
+    with pytest.raises(ValueError, match="duplicate agent_ids"):
+        Scenario(id="broken", agents=[spec, spec])
+
+
+def test_single_agent_defaults_agent_id() -> None:
+    """Scenario.single_agent() produces exactly one agent."""
+    s = Scenario.single_agent(
+        id="s1",
+        system_prompt="s",
+        initial_user_message="m",
+    )
+    assert len(s.agents) == 1
+    assert s.agents[0].agent_id == "agent"
+    assert s.agents[0].tools == []

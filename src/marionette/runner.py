@@ -56,22 +56,67 @@ MAX_TURNS = 10
 
 
 @dataclass(frozen=True)
-class Scenario:
-    """A scenario the runner can execute.
+class AgentSpec:
+    """One agent participating in a scenario.
 
-    Carries the minimum a run needs: an identifier (for trace organization),
-    the system prompt that defines the agent's task, the initial user message
-    that kicks off the conversation, and the tools the agent has access to.
+    Carries everything defining an agent's situation: its identity (recorded
+    as agent_id in the trace), the system prompt defining its task, the
+    message that opens its conversation, and the tools it may call.
 
-    Frozen because a scenario is a specification — mutating it mid-run would
-    invalidate the trace's claim about what the agent was given.
+    Tools are per-agent deliberately. Asymmetric capability is a research
+    variable, not an edge case — one agent may hold a communication channel
+    another does not.
     """
 
-    id: str
+    agent_id: str
     system_prompt: str
     initial_user_message: str
     tools: list[Tool[Any, Any]] = field(default_factory=list)
 
+
+@dataclass(frozen=True)
+class Scenario:
+    """A scenario the runner can execute.
+
+    Carries an identifier (for trace organization) and the agents taking
+    part. Use Scenario.single_agent() for the one-agent case.
+
+    Frozen because a scenario is a specification — mutating it mid-run would
+    invalidate the trace's claim about what the agents were given.
+    """
+
+    id: str
+    agents: list[AgentSpec]
+
+    def __post_init__(self) -> None:
+        """Reject scenarios that cannot produce a coherent trace."""
+        if not self.agents:
+            raise ValueError(f"scenario {self.id!r} has no agents")
+        ids = [a.agent_id for a in self.agents]
+        if len(set(ids)) != len(ids):
+            raise ValueError(f"scenario {self.id!r} has duplicate agent_ids: {ids}")
+
+    @classmethod
+    def single_agent(
+        cls,
+        id: str,
+        system_prompt: str,
+        initial_user_message: str,
+        tools: list[Tool[Any, Any]] | None = None,
+        agent_id: str = "agent",
+    ) -> "Scenario":
+        """Build a one-agent scenario."""
+        return cls(
+            id=id,
+            agents=[
+                AgentSpec(
+                    agent_id=agent_id,
+                    system_prompt=system_prompt,
+                    initial_user_message=initial_user_message,
+                    tools=list(tools) if tools else [],
+                )
+            ],
+        )
 
 @dataclass(frozen=True)
 class RunResult:
@@ -134,14 +179,15 @@ def run(
         A RunResult summarizing the run outcome and trace location.
     """
     run_id = uuid.uuid4().hex[:12]
+    agent = scenario.agents[0]
     trace_path = _build_trace_path(output_root, scenario.id, model, run_id)
     start = time.monotonic()
 
     if adapter is None:
-        adapter = AnthropicAdapter(model=model, tools=scenario.tools)
+        adapter = AnthropicAdapter(model=model, tools=agent.tools)
 
     registry = ToolRegistry()
-    for tool in scenario.tools:
+    for tool in agent.tools:
         registry.register(tool)
 
     status: Literal["ok", "aborted"] = "ok"
@@ -154,7 +200,7 @@ def run(
             args_schema=tool.args_schema.model_json_schema(),
             result_schema=tool.result_schema.model_json_schema(),
         )
-        for tool in sorted(scenario.tools, key=lambda t: t.name)
+        for tool in sorted(agent.tools, key=lambda t: t.name)
     ]
     with TraceWriter(trace_path) as writer:
         # Emit run_started immediately, before anything else can fail.
@@ -176,10 +222,10 @@ def run(
         gateway = Gateway(registry, writer)
 
         # Initialize the conversation with the system prompt and first user message.
-        conversation = Conversation(system=scenario.system_prompt).with_message(
+        conversation = Conversation(system=agent.system_prompt).with_message(
             Message(
                 role="user",
-                content=[TextContent(text=scenario.initial_user_message)],
+                content=[TextContent(text=agent.initial_user_message)],
             )
         )
 
