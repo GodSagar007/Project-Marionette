@@ -47,6 +47,7 @@ class Gateway:
         call_id: str,
         raw_args: dict[str, Any],
         turn_id: str | None = None,
+        agent_id: str | None = None,
     ) -> BaseModel | None:
         """Route a tool call: log intent, validate, run, log outcome.
 
@@ -59,7 +60,9 @@ class Gateway:
             call_id: Correlation id linking the originating tool_call event to
                 the result or error events emitted here.
             raw_args: The arguments as provided by the agent, unvalidated.
-
+            turn_id: Correlation id for the model turn this call belongs to.
+            agent_id: The agent that made this call. None for single-agent
+                traces predating 1.2.0.
         Returns:
             The tool's result on success, or None if the call failed. On
             failure, a tool_error event has already been written to the trace.
@@ -68,6 +71,7 @@ class Gateway:
         self._writer.write(
             GatewayIntentLoggedEvent(
                 actor="framework",
+                agent_id=agent_id,
                 payload=GatewayIntentLoggedPayload(
                     call_id=call_id,
                     turn_id=turn_id,
@@ -85,6 +89,7 @@ class Gateway:
                     message=f"no tool named {tool_name!r} is registered",
                 ),
                 turn_id=turn_id,
+                agent_id=agent_id,
             )
             return None
 
@@ -100,6 +105,7 @@ class Gateway:
                     cause=e,
                 ),
                 turn_id=turn_id,
+                agent_id=agent_id,
             )
             return None
 
@@ -115,6 +121,7 @@ class Gateway:
                     cause=e,
                 ),
                 turn_id=turn_id,
+                agent_id=agent_id,
             )
             return None
 
@@ -122,6 +129,7 @@ class Gateway:
         self._writer.write(
             ToolResultEvent(
                 actor=f"tool:{tool_name}",
+                agent_id=agent_id,
                 payload=ToolResultPayload(
                     call_id=call_id,
                     result=result.model_dump(),
@@ -138,6 +146,7 @@ class Gateway:
         call_id: str,
         error: ToolError,
         turn_id: str | None = None,
+        agent_id: str | None = None,
     ) -> None:
         """Write a tool_error event for a failed call.
 
@@ -147,10 +156,14 @@ class Gateway:
         Args:
             call_id: Correlation id for the failed call.
             error: The error describing what went wrong.
+            turn_id: Correlation id for the model turn this call belongs to.
+            agent_id: The agent that made this call. None for run-level
+                events or traces predating schema 1.2.0.
         """
         self._writer.write(
             ToolErrorEvent(
                 actor="framework",
+                agent_id=agent_id,
                 payload=ToolErrorPayload(
                     call_id=call_id,
                     error_type=error.error_type,

@@ -45,9 +45,11 @@ agents both carry `actor="agent"` and differ only by `agent_id`.
 Declared on `_EventBase`, not on payloads. It is provenance metadata, the
 same category as `actor`, not content.
 
-Nullable for backward compatibility, but the runner always sets it —
-including single-agent runs. `None` therefore means "trace predates 1.2.0",
-not "no agent involved", and analysis code needs one path rather than two.
+Nullable for backward compatibility. For agent-attributable events the
+runner always sets it, including single-agent runs. Run-level events
+(run_started, run_completed, run_aborted) carry None because no agent is
+responsible for them. None therefore means "run-level event, or a trace
+predating 1.2.0" — never "a single-agent run we didn't bother labelling".
 
 ## Decision 3: the communication channel is a tool
 

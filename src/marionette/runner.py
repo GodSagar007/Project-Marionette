@@ -239,11 +239,13 @@ def run(
                 if turn.text:
                     writer.write(AgentMessageEvent(
                         actor="agent",
+                        agent_id=agent.agent_id,
                         payload=AgentMessagePayload(text=turn.text,turn_id=turn_id,),
                     ))
                     event_count += 1
                 writer.write(ModelResponseEvent(
                     actor="framework",
+                    agent_id=agent.agent_id,
                     payload=ModelResponsePayload(
                         turn_id=turn_id,
                         usage=turn.usage,
@@ -272,6 +274,7 @@ def run(
                 for tool_use in turn.tool_uses:
                     writer.write(ToolCallEvent(
                         actor="agent",
+                        agent_id=agent.agent_id,
                         payload=ToolCallPayload(
                             tool=tool_use.tool,
                             call_id=tool_use.call_id,
@@ -286,6 +289,7 @@ def run(
                         call_id=tool_use.call_id,
                         raw_args=tool_use.args,
                     turn_id=turn_id,
+                    agent_id=agent.agent_id,
                     )
                     # The gateway has already written gateway_intent_logged +
                     # tool_result/tool_error; we counted those in writer side-effects
