@@ -349,3 +349,50 @@ def test_single_agent_defaults_agent_id() -> None:
     assert len(s.agents) == 1
     assert s.agents[0].agent_id == "agent"
     assert s.agents[0].tools == []
+
+
+def test_scenario_rejects_zero_rounds() -> None:
+    """A scenario must run at least one round."""
+    spec = AgentSpec(agent_id="a", system_prompt="s", initial_user_message="m")
+    with pytest.raises(ValueError, match="must be >= 1"):
+        Scenario(id="s1", agents=[spec], rounds=0)
+
+
+def test_multiple_rounds_drive_the_agent_repeatedly(tmp_path: Path) -> None:
+    """rounds=3 runs the agent's turn loop three times, not once."""
+    scenario = Scenario(
+        id="three-rounds",
+        agents=[
+            AgentSpec(agent_id="agent", system_prompt="s", initial_user_message="m")
+        ],
+        rounds=3,
+    )
+    fake = FakeAdapter(turns=[make_turn(text="done")] * 3)
+    result = run(
+        scenario=scenario,
+        model="claude-test",
+        output_root=tmp_path,
+        adapter=_as_adapter(fake),
+    )
+
+    assert result.status == "ok"
+    types = [e[1] for e in _read_events(result.trace_path)]
+    assert types.count("agent_message") == 3
+    assert types.count("model_response") == 3
+
+
+def test_multi_agent_scenario_is_rejected(tmp_path: Path) -> None:
+    """Multi-agent runs fail loudly until per-agent manifests land (3.3b)."""
+    scenario = Scenario(
+        id="two-agents",
+        agents=[
+            AgentSpec(agent_id="alice", system_prompt="s", initial_user_message="m"),
+            AgentSpec(agent_id="bob", system_prompt="s", initial_user_message="m"),
+        ],
+    )
+    with pytest.raises(NotImplementedError, match="per-agent tool manifests"):
+        run(
+            scenario=scenario,
+            model="claude-test",
+            output_root=tmp_path,
+        )

@@ -14,7 +14,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, NamedTuple
 
 from marionette.adapter.anthropic import AdapterError, AnthropicAdapter
 from marionette.adapter.conversation import (
@@ -49,9 +49,9 @@ from marionette.trace.writer import TraceWriter
 # metadata.
 FRAMEWORK_VERSION = "0.1.0"
 
-# Hard ceiling on agent loop iterations. A misbehaving model that keeps calling
-# tools forever shouldn't run indefinitely. Echo-smoke finishes in 2-3 turns;
-# this caps the worst case generously.
+# Hard ceiling on agent loop iterations, per agent per round. A misbehaving
+# model that keeps calling tools forever shouldn't run indefinitely.
+# Echo-smoke finishes in 2-3 turns; this caps the worst case generously.
 MAX_TURNS = 10
 
 
@@ -78,8 +78,14 @@ class AgentSpec:
 class Scenario:
     """A scenario the runner can execute.
 
-    Carries an identifier (for trace organization) and the agents taking
-    part. Use Scenario.single_agent() for the one-agent case.
+    Carries an identifier (for trace organization), the agents taking part,
+    and how many rounds they act for. Use Scenario.single_agent() for the
+    one-agent case.
+
+    A round is one pass in which every agent acts once. Single-agent
+    scenarios use rounds=1: the agent's turn loop runs to completion and the
+    run ends. Multi-agent scenarios use rounds>1 to produce repeated
+    interaction, which is what makes coordination possible at all.
 
     Frozen because a scenario is a specification — mutating it mid-run would
     invalidate the trace's claim about what the agents were given.
@@ -87,6 +93,7 @@ class Scenario:
 
     id: str
     agents: list[AgentSpec]
+    rounds: int = 1
 
     def __post_init__(self) -> None:
         """Reject scenarios that cannot produce a coherent trace."""
@@ -95,6 +102,8 @@ class Scenario:
         ids = [a.agent_id for a in self.agents]
         if len(set(ids)) != len(ids):
             raise ValueError(f"scenario {self.id!r} has duplicate agent_ids: {ids}")
+        if self.rounds < 1:
+            raise ValueError(f"scenario {self.id!r} has rounds={self.rounds}; must be >= 1")
 
     @classmethod
     def single_agent(
@@ -118,6 +127,25 @@ class Scenario:
             ],
         )
 
+
+@dataclass
+class _AgentRuntime:
+    """Mutable per-agent state for the duration of a run.
+
+    One per AgentSpec. Holds the agent's adapter, its gateway (and through it
+    its own tool registry), and its conversation as that accumulates.
+
+    Separate conversations are the whole point: each agent sees only what it
+    was given and what it did. Nothing crosses between agents except through
+    an explicit channel recorded in the trace.
+    """
+
+    spec: AgentSpec
+    adapter: AnthropicAdapter
+    gateway: Gateway
+    conversation: Conversation
+
+
 @dataclass(frozen=True)
 class RunResult:
     """The outcome of a single run.
@@ -135,6 +163,19 @@ class RunResult:
     abort_reason: str | None = None
 
 
+class _TurnLoopOutcome(NamedTuple):
+    """What one agent's turn loop produced.
+
+    Attributes:
+        events: Number of trace events written during the loop.
+        hit_turn_limit: True if the loop exhausted MAX_TURNS without the
+            agent ever stopping — a run-aborting condition.
+    """
+
+    events: int
+    hit_turn_limit: bool
+
+
 def _build_trace_path(output_root: Path, scenario_id: str, model: str, run_id: str) -> Path:
     """Compute the canonical trace file path for a run.
 
@@ -144,6 +185,169 @@ def _build_trace_path(output_root: Path, scenario_id: str, model: str, run_id: s
     as-is; the model id is already safe to use as a directory name.
     """
     return output_root / scenario_id / model / f"{run_id}.jsonl"
+
+
+def _tools_manifest(tools: list[Tool[Any, Any]]) -> list[ToolManifestEntry]:
+    """Describe a tool set as it was presented to an agent.
+
+    Sorted by name so two identical runs produce identical traces.
+    """
+    return [
+        ToolManifestEntry(
+            name=tool.name,
+            description=tool.description,
+            args_schema=tool.args_schema.model_json_schema(),
+            result_schema=tool.result_schema.model_json_schema(),
+        )
+        for tool in sorted(tools, key=lambda t: t.name)
+    ]
+
+
+def _build_runtime(
+    spec: AgentSpec,
+    model: str,
+    adapter: AnthropicAdapter | None,
+    writer: TraceWriter,
+) -> _AgentRuntime:
+    """Set up one agent's adapter, gateway, and opening conversation.
+
+    Args:
+        spec: The agent's specification.
+        model: Model id, used only if an adapter must be constructed.
+        adapter: Pre-constructed adapter, or None to build one. Tests inject
+            a fake here.
+        writer: Trace writer, handed to the agent's gateway.
+    """
+    registry = ToolRegistry()
+    for tool in spec.tools:
+        registry.register(tool)
+
+    return _AgentRuntime(
+        spec=spec,
+        adapter=(
+            adapter if adapter is not None
+            else AnthropicAdapter(model=model, tools=spec.tools)
+        ),
+        gateway=Gateway(registry, writer),
+        conversation=Conversation(system=spec.system_prompt).with_message(
+            Message(
+                role="user",
+                content=[TextContent(text=spec.initial_user_message)],
+            )
+        ),
+    )
+
+
+def _run_agent_turns(
+    rt: _AgentRuntime,
+    writer: TraceWriter,
+    max_turns: int = MAX_TURNS,
+) -> _TurnLoopOutcome:
+    """Drive one agent until it stops calling tools or max_turns is reached.
+
+    Mutates rt.conversation as the exchange accumulates. The agent's context
+    therefore carries forward across rounds, which is what makes repeated
+    interaction meaningful rather than a sequence of unrelated prompts.
+
+    Args:
+        rt: The agent's runtime state. Its conversation is updated in place.
+        writer: Trace writer. Events are attributed to rt.spec.agent_id.
+        max_turns: Ceiling on model calls before the loop gives up.
+
+    Returns:
+        Events written, and whether the ceiling was hit.
+
+    Raises:
+        AdapterError: Propagated to the caller, which aborts the run.
+    """
+    events = 0
+    agent_id = rt.spec.agent_id
+
+    for _turn_number in range(max_turns):
+        turn = rt.adapter.get_turn(rt.conversation)
+        turn_id = uuid.uuid4().hex[:12]
+
+        # Record the model's textual output, if any.
+        if turn.text:
+            writer.write(AgentMessageEvent(
+                actor="agent",
+                agent_id=agent_id,
+                payload=AgentMessagePayload(text=turn.text, turn_id=turn_id),
+            ))
+            events += 1
+
+        writer.write(ModelResponseEvent(
+            actor="framework",
+            agent_id=agent_id,
+            payload=ModelResponsePayload(
+                turn_id=turn_id,
+                usage=turn.usage,
+                stop_reason=turn.stop_reason,
+                duration_ms=turn.duration_ms,
+            ),
+        ))
+        events += 1
+
+        # If no tool calls, the agent is done for this round.
+        if not turn.wants_tools:
+            return _TurnLoopOutcome(events=events, hit_turn_limit=False)
+
+        # Build an assistant message representing what the model just emitted
+        # (text + tool_uses), so the next turn's conversation history is correct.
+        assistant_content: list[Any] = []
+        if turn.text:
+            assistant_content.append(TextContent(text=turn.text))
+        assistant_content.extend(turn.tool_uses)
+        rt.conversation = rt.conversation.with_message(
+            Message(role="assistant", content=assistant_content)
+        )
+
+        # Record each tool call as an event, route through the gateway, and
+        # append the result to the conversation for the next turn.
+        tool_result_blocks: list[Any] = []
+        for tool_use in turn.tool_uses:
+            writer.write(ToolCallEvent(
+                actor="agent",
+                agent_id=agent_id,
+                payload=ToolCallPayload(
+                    tool=tool_use.tool,
+                    call_id=tool_use.call_id,
+                    args=tool_use.args,
+                    turn_id=turn_id,
+                ),
+            ))
+            events += 1
+
+            result = rt.gateway.route(
+                tool_name=tool_use.tool,
+                call_id=tool_use.call_id,
+                raw_args=tool_use.args,
+                turn_id=turn_id,
+                agent_id=agent_id,
+            )
+            # The gateway writes two events per call: intent, then either
+            # result or error. Counted here since the writer doesn't report back.
+            events += 2
+
+            # Build the tool_result content for the next conversation turn.
+            if result is None:
+                tool_result_blocks.append(ToolResultContent(
+                    call_id=tool_use.call_id,
+                    result="tool call failed; see trace for details",
+                    is_error=True,
+                ))
+            else:
+                tool_result_blocks.append(ToolResultContent(
+                    call_id=tool_use.call_id,
+                    result=result.model_dump(),
+                ))
+
+        # Append the user message containing all tool results.
+        rt.conversation = rt.conversation.with_message(
+            Message(role="user", content=tool_result_blocks)
+        )
+
+    return _TurnLoopOutcome(events=events, hit_turn_limit=True)
 
 
 def run(
@@ -156,9 +360,9 @@ def run(
 ) -> RunResult:
     """Execute one scenario run end-to-end.
 
-    Wires together the trace writer, gateway, and adapter; drives the agent
-    loop until the model stops requesting tools or MAX_TURNS is reached;
-    emits run lifecycle events; returns a summary RunResult.
+    Wires together the trace writer, per-agent gateways, and adapters; drives
+    each agent's turn loop for scenario.rounds rounds; emits run lifecycle
+    events; returns a summary RunResult.
 
     Args:
         scenario: The scenario to execute.
@@ -173,35 +377,34 @@ def run(
             Currently only True is supported; recorded in run_started so future
             traces can be filtered by run mode.
         adapter: Optional pre-constructed adapter. If None, an AnthropicAdapter
-            is built from `model` and `scenario.tools`. Tests inject a fake.
+            is built per agent from `model` and that agent's tools. Tests
+            inject a fake.
 
     Returns:
         A RunResult summarizing the run outcome and trace location.
+
+    Raises:
+        NotImplementedError: If the scenario has more than one agent. The
+            structure supports it; the trace schema does not yet.
     """
     run_id = uuid.uuid4().hex[:12]
-    agent = scenario.agents[0]
     trace_path = _build_trace_path(output_root, scenario.id, model, run_id)
     start = time.monotonic()
 
-    if adapter is None:
-        adapter = AnthropicAdapter(model=model, tools=agent.tools)
-
-    registry = ToolRegistry()
-    for tool in agent.tools:
-        registry.register(tool)
+    if len(scenario.agents) > 1:
+        # run_started carries a single flat tools_manifest. With several
+        # agents holding different tools it would silently under-report, and
+        # a trace that misstates what an agent was given is worse than no
+        # trace. Per-agent manifests land in 3.3b; until then, fail loudly.
+        raise NotImplementedError(
+            f"scenario {scenario.id!r} has {len(scenario.agents)} agents; "
+            "multi-agent runs need per-agent tool manifests (3.3b)"
+        )
 
     status: Literal["ok", "aborted"] = "ok"
     abort_reason: str | None = None
     event_count = 0
-    manifest = [
-        ToolManifestEntry(
-            name=tool.name,
-            description=tool.description,
-            args_schema=tool.args_schema.model_json_schema(),
-            result_schema=tool.result_schema.model_json_schema(),
-        )
-        for tool in sorted(agent.tools, key=lambda t: t.name)
-    ]
+
     with TraceWriter(trace_path) as writer:
         # Emit run_started immediately, before anything else can fail.
         writer.write(RunStartedEvent(
@@ -214,111 +417,32 @@ def run(
                 seed=seed,
                 framework_version=FRAMEWORK_VERSION,
                 dev_mode=dev_mode,
-                tools_manifest=manifest,
+                tools_manifest=_tools_manifest(scenario.agents[0].tools),
             ),
         ))
         event_count += 1
 
-        gateway = Gateway(registry, writer)
+        runtimes = [
+            _build_runtime(spec, model, adapter, writer)
+            for spec in scenario.agents
+        ]
 
-        # Initialize the conversation with the system prompt and first user message.
-        conversation = Conversation(system=agent.system_prompt).with_message(
-            Message(
-                role="user",
-                content=[TextContent(text=agent.initial_user_message)],
-            )
-        )
-
-        # The agent loop.
+        # The round loop. Each round, every agent acts once — where "acting
+        # once" means driving its own turn loop until it stops calling tools.
         try:
-            for _turn_number in range(MAX_TURNS):
-                turn = adapter.get_turn(conversation)
-                turn_id = uuid.uuid4().hex[:12]
-
-                # Record the model's textual output, if any.
-                if turn.text:
-                    writer.write(AgentMessageEvent(
-                        actor="agent",
-                        agent_id=agent.agent_id,
-                        payload=AgentMessagePayload(text=turn.text,turn_id=turn_id,),
-                    ))
-                    event_count += 1
-                writer.write(ModelResponseEvent(
-                    actor="framework",
-                    agent_id=agent.agent_id,
-                    payload=ModelResponsePayload(
-                        turn_id=turn_id,
-                        usage=turn.usage,
-                        stop_reason=turn.stop_reason,
-                        duration_ms=turn.duration_ms,
-                    ),
-                ))
-                event_count += 1
-                # If no tool calls, the model is done.
-                if not turn.wants_tools:
+            for _round_number in range(scenario.rounds):
+                for rt in runtimes:
+                    outcome = _run_agent_turns(rt, writer)
+                    event_count += outcome.events
+                    if outcome.hit_turn_limit:
+                        status = "aborted"
+                        abort_reason = (
+                            f"agent {rt.spec.agent_id!r} exceeded maximum "
+                            f"turn limit ({MAX_TURNS})"
+                        )
+                        break
+                if status == "aborted":
                     break
-
-                # Build an assistant message representing what the model just emitted
-                # (text + tool_uses), so the next turn's conversation history is correct.
-                assistant_content: list[Any] = []
-                if turn.text:
-                    assistant_content.append(TextContent(text=turn.text))
-                assistant_content.extend(turn.tool_uses)
-                conversation = conversation.with_message(
-                    Message(role="assistant", content=assistant_content)
-                )
-
-                # Record each tool call as an event, route through the gateway,
-                # and append the result to the conversation for the next turn.
-                tool_result_blocks: list[Any] = []
-                for tool_use in turn.tool_uses:
-                    writer.write(ToolCallEvent(
-                        actor="agent",
-                        agent_id=agent.agent_id,
-                        payload=ToolCallPayload(
-                            tool=tool_use.tool,
-                            call_id=tool_use.call_id,
-                            args=tool_use.args,
-                        turn_id=turn_id,
-                        ),
-                    ))
-                    event_count += 1
-
-                    result = gateway.route(
-                        tool_name=tool_use.tool,
-                        call_id=tool_use.call_id,
-                        raw_args=tool_use.args,
-                    turn_id=turn_id,
-                    agent_id=agent.agent_id,
-                    )
-                    # The gateway has already written gateway_intent_logged +
-                    # tool_result/tool_error; we counted those in writer side-effects
-                    # but for accuracy we re-read event_count from the writer later.
-                    # For thread one, we just increment for the events we KNOW were
-                    # emitted by the gateway (2 events per call: intent + result/error).
-                    event_count += 2
-
-                    # Build the tool_result content for the next conversation turn.
-                    if result is None:
-                        tool_result_blocks.append(ToolResultContent(
-                            call_id=tool_use.call_id,
-                            result="tool call failed; see trace for details",
-                            is_error=True,
-                        ))
-                    else:
-                        tool_result_blocks.append(ToolResultContent(
-                            call_id=tool_use.call_id,
-                            result=result.model_dump(),
-                        ))
-
-                # Append the user message containing all tool results.
-                conversation = conversation.with_message(
-                    Message(role="user", content=tool_result_blocks)
-                )
-            else:
-                # The for loop exhausted without break — we hit MAX_TURNS.
-                status = "aborted"
-                abort_reason = f"exceeded maximum turn limit ({MAX_TURNS})"
 
         except AdapterError as e:
             status = "aborted"
