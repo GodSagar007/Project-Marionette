@@ -381,18 +381,63 @@ def test_multiple_rounds_drive_the_agent_repeatedly(tmp_path: Path) -> None:
     assert types.count("model_response") == 3
 
 
-def test_multi_agent_scenario_is_rejected(tmp_path: Path) -> None:
-    """Multi-agent runs fail loudly until per-agent manifests land (3.3b)."""
+def test_two_agents_alternate_within_a_round(tmp_path: Path) -> None:
+    """Both agents act once per round, in roster order, each attributed."""
     scenario = Scenario(
         id="two-agents",
         agents=[
             AgentSpec(agent_id="alice", system_prompt="s", initial_user_message="m"),
             AgentSpec(agent_id="bob", system_prompt="s", initial_user_message="m"),
         ],
+        rounds=2,
     )
-    with pytest.raises(NotImplementedError, match="per-agent tool manifests"):
-        run(
-            scenario=scenario,
-            model="claude-test",
-            output_root=tmp_path,
-        )
+    fake = FakeAdapter(turns=[make_turn(text="ok")] * 4)
+    result = run(
+        scenario=scenario,
+        model="claude-test",
+        output_root=tmp_path,
+        adapter=_as_adapter(fake),
+    )
+
+    assert result.status == "ok"
+
+    with TraceReader(result.trace_path) as reader:
+        events = reader.read_all()
+
+    speakers = [e.agent_id for e in events if e.event == "agent_message"]
+    assert speakers == ["alice", "bob", "alice", "bob"]
+
+
+def test_run_started_records_every_agent(tmp_path: Path) -> None:
+    """run_started carries each agent's model, instructions, and tools."""
+    scenario = Scenario(
+        id="manifest-check",
+        agents=[
+            AgentSpec(
+                agent_id="alice",
+                system_prompt="you are alice",
+                initial_user_message="begin",
+                tools=[EchoTool()],
+            ),
+            AgentSpec(agent_id="bob", system_prompt="you are bob", initial_user_message="go"),
+        ],
+        rounds=1,
+    )
+    fake = FakeAdapter(turns=[make_turn(text="ok")] * 2)
+    result = run(
+        scenario=scenario,
+        model="claude-test",
+        output_root=tmp_path,
+        adapter=_as_adapter(fake),
+    )
+
+    with TraceReader(result.trace_path) as reader:
+        started = reader.read_all()[0]
+
+    assert started.payload.rounds == 1
+    agents = started.payload.agents
+    assert [a.agent_id for a in agents] == ["alice", "bob"]
+    assert agents[0].system_prompt == "you are alice"
+    assert agents[0].model_id == "claude-test"
+    assert [t.name for t in agents[0].tools] == ["echo"]
+    assert agents[1].tools == []

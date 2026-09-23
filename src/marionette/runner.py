@@ -28,6 +28,7 @@ from marionette.gateway.registry import ToolRegistry
 from marionette.gateway.tool import Tool
 from marionette.trace.schema import (
     SCHEMA_VERSION,
+    AgentManifestEntry,
     AgentMessageEvent,
     AgentMessagePayload,
     ModelResponseEvent,
@@ -200,6 +201,23 @@ def _tools_manifest(tools: list[Tool[Any, Any]]) -> list[ToolManifestEntry]:
             result_schema=tool.result_schema.model_json_schema(),
         )
         for tool in sorted(tools, key=lambda t: t.name)
+    ]
+
+def _agent_manifest(specs: list[AgentSpec], model: str) -> list[AgentManifestEntry]:
+    """Describe every agent's situation as configured at run start.
+
+    model_id is the run's model for every agent today. The field is
+    per-agent so heterogeneous runs need no further schema change.
+    """
+    return [
+        AgentManifestEntry(
+            agent_id=spec.agent_id,
+            model_id=model,
+            system_prompt=spec.system_prompt,
+            initial_user_message=spec.initial_user_message,
+            tools=_tools_manifest(spec.tools),
+        )
+        for spec in specs
     ]
 
 
@@ -383,23 +401,10 @@ def run(
     Returns:
         A RunResult summarizing the run outcome and trace location.
 
-    Raises:
-        NotImplementedError: If the scenario has more than one agent. The
-            structure supports it; the trace schema does not yet.
     """
     run_id = uuid.uuid4().hex[:12]
     trace_path = _build_trace_path(output_root, scenario.id, model, run_id)
     start = time.monotonic()
-
-    if len(scenario.agents) > 1:
-        # run_started carries a single flat tools_manifest. With several
-        # agents holding different tools it would silently under-report, and
-        # a trace that misstates what an agent was given is worse than no
-        # trace. Per-agent manifests land in 3.3b; until then, fail loudly.
-        raise NotImplementedError(
-            f"scenario {scenario.id!r} has {len(scenario.agents)} agents; "
-            "multi-agent runs need per-agent tool manifests (3.3b)"
-        )
 
     status: Literal["ok", "aborted"] = "ok"
     abort_reason: str | None = None
@@ -417,7 +422,8 @@ def run(
                 seed=seed,
                 framework_version=FRAMEWORK_VERSION,
                 dev_mode=dev_mode,
-                tools_manifest=_tools_manifest(scenario.agents[0].tools),
+                rounds=scenario.rounds,
+                agents=_agent_manifest(scenario.agents, model),
             ),
         ))
         event_count += 1

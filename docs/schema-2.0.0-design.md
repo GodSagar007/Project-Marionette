@@ -133,23 +133,19 @@ a materially stronger guarantee than the one they assert today.
 
 ## Compatibility
 
-**Backward: none.** A 1.x trace does not load under 2.0.0. `run_started`
-lacks `agents` and carries an unexpected `tools_manifest`, which
-`_StrictBase` rejects on `extra="forbid"`.
+**Backward: partial, and asymmetric.** A 1.0.0 trace loads — it predates
+`tools_manifest`, so `run_started` carries no field 2.0.0 rejects, and
+`agents` simply defaults to empty. The trace reads, degraded: it reports no
+agent configuration because none was ever recorded.
 
-This is the intended behaviour of a major version. `TraceReader` already
-warns on major-version mismatch; that path is now exercised rather than
-theoretical.
+A 1.1.0 or 1.2.0 trace does not. Its `run_started` carries `tools_manifest`,
+now an unexpected field, which `_StrictBase` rejects on `extra="forbid"`.
+Because `TraceReader` is lenient, that line is skipped with a warning rather
+than raising — the file still opens and its other events still load, but the
+run's configuration is gone.
 
-**Forward: none, by definition.** A 1.x reader cannot interpret a 2.0.0
-trace's `run_started`.
-
-**Within 2.x:** additive evolution resumes. New fields default, new event
-types are skipped by older readers, exactly as in 1.x.
-
-Existing traces under `runs/` are 1.x smoke output and are deleted rather
-than migrated. No migration tooling is written, because there is nothing
-worth migrating.
+This asymmetry is worth stating plainly: the traces that fail are the newer
+ones. Verified against the implementation rather than assumed.
 
 ## Implementation order
 

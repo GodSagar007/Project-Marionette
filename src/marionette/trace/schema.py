@@ -14,7 +14,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-SCHEMA_VERSION = "1.2.0"
+SCHEMA_VERSION = "2.0.0"
 
 class _StrictBase(BaseModel):
     """Base class for all trace payloads.
@@ -38,6 +38,25 @@ class ToolManifestEntry(_StrictBase):
     args_schema: dict[str, Any]
     result_schema: dict[str, Any]
 
+class AgentManifestEntry(_StrictBase):
+    """One agent's situation as configured at run start.
+
+    Records what the agent was given — its model, its instructions, and its
+    tools — so a trace is reproducible without the scenario source beside it.
+
+    The system prompt is here because it carries the experimental
+    manipulation. In a sandbagging scenario it is what tells the agent
+    whether it is being evaluated; in a collusion scenario it is where
+    symmetric or asymmetric instruction shows up. A trace that cannot report
+    which condition it recorded cannot evidence its own result.
+    """
+
+    agent_id: str
+    model_id: str
+    system_prompt: str
+    initial_user_message: str
+    tools: list[ToolManifestEntry] = Field(default_factory=list)
+
 class RunStartedPayload(_StrictBase):
     """Payload for the run_started event. Emitted once, at the start of each run."""
 
@@ -48,7 +67,8 @@ class RunStartedPayload(_StrictBase):
     seed: int
     framework_version: str
     dev_mode: bool
-    tools_manifest: list[ToolManifestEntry] = Field(default_factory=list)
+    rounds: int = 1
+    agents: list[AgentManifestEntry] = Field(default_factory=list)
 
 
 class ToolCallPayload(_StrictBase):

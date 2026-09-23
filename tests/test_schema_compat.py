@@ -75,7 +75,7 @@ def test_v1_0_0_trace_loads_with_new_fields_defaulted(tmp_path: Path) -> None:
 
     started = events[0]
     assert started.event == "run_started"
-    assert started.payload.tools_manifest == []
+    assert started.payload.agents == []
     assert started.agent_id is None
     msg = events[1]
     assert msg.event == "agent_message"
