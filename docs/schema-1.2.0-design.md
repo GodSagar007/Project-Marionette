@@ -106,9 +106,17 @@ so that an exporter, if ever wanted, is mechanical. See §Field mapping.
 
     agent_id: str | None = None
 
-### 2. `AgentSpec` and `Scenario.agents` — 3.2
+### 2. `AgentSpec` and `Scenario.agents` — DONE (3.2)
 
-### 3. Runner alternates over N agents — 3.3
+Delivered as specced. Per-agent tool manifests, which this document assigned
+here, were instead delivered by schema 2.0.0 — the manifest was relocated to
+`AgentManifestEntry` rather than duplicated alongside the existing flat one.
+See `docs/schema-2.0.0-design.md`.
+
+### 3. Runner alternates over N agents — DONE (3.3)
+
+Agents execute sequentially within each round, each with its own
+conversation, gateway, and tool registry.
 
 ### 4. `send_message` tool, `message_delivered` event, reveal timing — 3.4
 
