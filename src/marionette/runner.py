@@ -12,7 +12,7 @@ gets promoted to its own module under scenarios/.
 
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Literal, NamedTuple
 
@@ -23,6 +23,7 @@ from marionette.adapter.conversation import (
     TextContent,
     ToolResultContent,
 )
+from marionette.context import RunContext
 from marionette.gateway.gateway import Gateway
 from marionette.gateway.registry import ToolRegistry
 from marionette.gateway.tool import Tool
@@ -259,6 +260,7 @@ def _build_runtime(
 def _run_agent_turns(
     rt: _AgentRuntime,
     writer: TraceWriter,
+    ctx: RunContext,
     max_turns: int = MAX_TURNS,
 ) -> _TurnLoopOutcome:
     """Drive one agent until it stops calling tools or max_turns is reached.
@@ -284,6 +286,7 @@ def _run_agent_turns(
     for _turn_number in range(max_turns):
         turn = rt.adapter.get_turn(rt.conversation)
         turn_id = uuid.uuid4().hex[:12]
+        turn_ctx = replace(ctx, turn_id=turn_id)
 
         # Record the model's textual output, if any.
         if turn.text:
@@ -340,8 +343,7 @@ def _run_agent_turns(
                 tool_name=tool_use.tool,
                 call_id=tool_use.call_id,
                 raw_args=tool_use.args,
-                turn_id=turn_id,
-                agent_id=agent_id,
+                ctx=turn_ctx,
             )
             # The gateway writes two events per call: intent, then either
             # result or error. Counted here since the writer doesn't report back.
@@ -438,7 +440,16 @@ def run(
         try:
             for _round_number in range(scenario.rounds):
                 for rt in runtimes:
-                    outcome = _run_agent_turns(rt, writer)
+                    outcome = _run_agent_turns(
+                        rt,
+                        writer,
+                        RunContext(
+                            run_id=run_id,
+                            round_number=_round_number,
+                            turn_id="",
+                            acting_agent_id=rt.spec.agent_id,
+                        ),
+                    )
                     event_count += outcome.events
                     if outcome.hit_turn_limit:
                         status = "aborted"

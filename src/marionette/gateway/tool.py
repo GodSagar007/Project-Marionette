@@ -10,6 +10,8 @@ from abc import ABC, abstractmethod
 
 from pydantic import BaseModel
 
+from marionette.context import RunContext
+
 
 class ToolErrorType:
     """Canonical error_type values for ToolErrorPayload.
@@ -59,7 +61,7 @@ class Tool[ArgsT: BaseModel, ResultT: BaseModel](ABC):
         result_schema: pydantic model class for the return value
 
     And must implement:
-        run(args): the actual tool behavior
+        run(args, ctx): the actual tool behavior
     """
 
     name: str
@@ -68,12 +70,14 @@ class Tool[ArgsT: BaseModel, ResultT: BaseModel](ABC):
     result_schema: type[ResultT]
 
     @abstractmethod
-    def run(self, args: ArgsT) -> ResultT:
+    def run(self, args: ArgsT, ctx: RunContext) -> ResultT:
         """Execute the tool's behavior with validated arguments.
 
         Args:
             args: An instance of self.args_schema.
-
+            ctx: Run-scoped state. Stateless tools may ignore it; any tool
+                needing per-run memory reads and writes it here rather than
+                on self, which is shared across runs.
         Returns:
             An instance of self.result_schema.
 

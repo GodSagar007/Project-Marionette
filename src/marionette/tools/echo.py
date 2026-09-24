@@ -8,6 +8,7 @@ beyond the gateway's own validation).
 
 from pydantic import BaseModel
 
+from marionette.context import RunContext
 from marionette.gateway import Tool
 
 
@@ -34,6 +35,6 @@ class EchoTool(Tool[EchoArgs, EchoResult]):
     args_schema = EchoArgs
     result_schema = EchoResult
 
-    def run(self, args: EchoArgs) -> EchoResult:
+    def run(self, args: EchoArgs, ctx: RunContext) -> EchoResult:
         """Return the input text unchanged."""
         return EchoResult(text=args.text)

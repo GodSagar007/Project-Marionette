@@ -5,11 +5,11 @@ logging intent before routing and the outcome after. The ordering — intent
 logged before any execution — is deliberate: it ensures the trace records
 what the agent attempted, even if execution fails or is blocked.
 """
-
 from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
+from marionette.context import RunContext
 from marionette.gateway.registry import ToolRegistry
 from marionette.gateway.tool import ToolError, ToolErrorType
 from marionette.trace.schema import (
@@ -46,8 +46,7 @@ class Gateway:
         tool_name: str,
         call_id: str,
         raw_args: dict[str, Any],
-        turn_id: str | None = None,
-        agent_id: str | None = None,
+        ctx: RunContext,
     ) -> BaseModel | None:
         """Route a tool call: log intent, validate, run, log outcome.
 
@@ -60,13 +59,13 @@ class Gateway:
             call_id: Correlation id linking the originating tool_call event to
                 the result or error events emitted here.
             raw_args: The arguments as provided by the agent, unvalidated.
-            turn_id: Correlation id for the model turn this call belongs to.
-            agent_id: The agent that made this call. None for single-agent
-                traces predating 1.2.0.
+            ctx: Run-scoped state. Supplies turn_id and acting_agent_id for
+                trace attribution, and is passed through to the tool.
         Returns:
             The tool's result on success, or None if the call failed. On
             failure, a tool_error event has already been written to the trace.
         """
+        turn_id, agent_id = ctx.turn_id, ctx.acting_agent_id
         # Step 1 — log intent BEFORE anything can fail or be blocked.
         self._writer.write(
             GatewayIntentLoggedEvent(
@@ -111,7 +110,7 @@ class Gateway:
 
         # Step 4 — run the tool. Any exception becomes a tool_exception error.
         try:
-            result: BaseModel = tool.run(args)
+            result: BaseModel = tool.run(args, ctx)
         except Exception as e:
             self._handle_error(
                 call_id,

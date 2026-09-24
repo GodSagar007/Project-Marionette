@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from marionette.context import RunContext
 from marionette.gateway import ToolRegistry
 from marionette.gateway.gateway import Gateway
 from marionette.gateway.tool import ToolErrorType
@@ -12,6 +13,12 @@ from marionette.trace.reader import TraceReader
 from marionette.trace.schema import ToolErrorEvent
 from marionette.trace.writer import TraceWriter
 
+CTX = RunContext(
+    run_id="test-run",
+    round_number=0,
+    turn_id="t1",
+    acting_agent_id="agent",
+)
 
 @pytest.fixture
 def gateway_and_path(tmp_path: Path) -> tuple[Gateway, TraceWriter, Path]:
@@ -35,7 +42,7 @@ def test_successful_call_returns_result(
 ) -> None:
     """A valid call returns the tool's result."""
     gateway, writer, _ = gateway_and_path
-    result = gateway.route("echo", call_id="c1", raw_args={"text": "hello"})
+    result = gateway.route("echo", call_id="c1", raw_args={"text": "hello"}, ctx=CTX)
     writer.close()
     assert isinstance(result, EchoResult)
     assert result.text == "hello"
@@ -46,7 +53,7 @@ def test_successful_call_logs_intent_then_result(
 ) -> None:
     """A successful call writes gateway_intent_logged then tool_result."""
     gateway, writer, path = gateway_and_path
-    gateway.route("echo", call_id="c1", raw_args={"text": "hi"})
+    gateway.route("echo", call_id="c1", raw_args={"text": "hi"}, ctx=CTX)
     writer.close()
 
     events = _read_events(path)
@@ -61,7 +68,7 @@ def test_unknown_tool_logs_intent_then_error(
 ) -> None:
     """An unknown tool still logs intent FIRST, then the error."""
     gateway, writer, path = gateway_and_path
-    result = gateway.route("nonexistent", call_id="c1", raw_args={})
+    result = gateway.route("nonexistent", call_id="c1", raw_args={}, ctx=CTX)
     writer.close()
 
     assert result is None
@@ -75,7 +82,7 @@ def test_unknown_tool_error_type(
 ) -> None:
     """Unknown tool produces a tool_error with error_type unknown_tool."""
     gateway, writer, path = gateway_and_path
-    gateway.route("nonexistent", call_id="c1", raw_args={})
+    gateway.route("nonexistent", call_id="c1", raw_args={}, ctx=CTX)
     writer.close()
 
     with TraceReader(path) as reader:
@@ -90,7 +97,7 @@ def test_invalid_args_logs_intent_then_error(
 ) -> None:
     """Invalid args still logs intent FIRST, then the error."""
     gateway, writer, path = gateway_and_path
-    result = gateway.route("echo", call_id="c1", raw_args={"wrong_field": "x"})
+    result = gateway.route("echo", call_id="c1", raw_args={"wrong_field": "x"}, ctx=CTX)
     writer.close()
 
     assert result is None
@@ -104,7 +111,7 @@ def test_invalid_args_error_type(
 ) -> None:
     """Invalid args produces a tool_error with error_type args_validation."""
     gateway, writer, path = gateway_and_path
-    gateway.route("echo", call_id="c1", raw_args={"wrong_field": "x"})
+    gateway.route("echo", call_id="c1", raw_args={"wrong_field": "x"}, ctx=CTX)
     writer.close()
 
     with TraceReader(path) as reader:
@@ -123,9 +130,9 @@ def test_intent_always_logged_before_outcome(
     call before its outcome, so attempted-but-failed actions are first-class.
     """
     gateway, writer, path = gateway_and_path
-    gateway.route("echo", call_id="ok", raw_args={"text": "hi"})         # success
-    gateway.route("nope", call_id="unk", raw_args={})                    # unknown
-    gateway.route("echo", call_id="bad", raw_args={"wrong": "x"})        # bad args
+    gateway.route("echo", call_id="ok", raw_args={"text": "hi"}, ctx=CTX)         # success
+    gateway.route("nope", call_id="unk", raw_args={}, ctx=CTX)                    # unknown
+    gateway.route("echo", call_id="bad", raw_args={"wrong": "x"}, ctx=CTX)        # bad args
     writer.close()
 
     events = _read_events(path)

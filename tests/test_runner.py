@@ -16,8 +16,10 @@ from marionette.adapter.anthropic import (
     AnthropicAdapter,
 )
 from marionette.adapter.conversation import Conversation, ToolUseContent, Turn
+from marionette.context import RunContext
+from marionette.gateway import Tool
 from marionette.runner import MAX_TURNS, AgentSpec, Scenario, run
-from marionette.tools.echo import EchoTool
+from marionette.tools.echo import EchoArgs, EchoResult, EchoTool
 from marionette.trace.reader import TraceReader
 from marionette.trace.schema import TokenUsage
 
@@ -441,3 +443,65 @@ def test_run_started_records_every_agent(tmp_path: Path) -> None:
     assert agents[0].model_id == "claude-test"
     assert [t.name for t in agents[0].tools] == ["echo"]
     assert agents[1].tools == []
+
+
+class CtxSpyTool(Tool[EchoArgs, EchoResult]):
+    """Records every RunContext it is called with.
+
+    Stateful, which is exactly what a module-level scenario tool must not be.
+    Safe here because each test builds its own instance.
+    """
+
+    name = "ctx_spy"
+    description = "Echoes its input and records the context it was called with."
+    args_schema = EchoArgs
+    result_schema = EchoResult
+
+    def __init__(self) -> None:
+        self.seen: list[RunContext] = []
+
+    def run(self, args: EchoArgs, ctx: RunContext) -> EchoResult:
+        self.seen.append(ctx)
+        return EchoResult(text=args.text)
+
+
+def test_run_context_reaches_the_tool(tmp_path: Path) -> None:
+    """A tool receives the run, round, turn, and acting agent of its call."""
+    spy = CtxSpyTool()
+    scenario = Scenario(
+        id="ctx-check",
+        agents=[
+            AgentSpec(
+                agent_id="alice",
+                system_prompt="s",
+                initial_user_message="m",
+                tools=[spy],
+            )
+        ],
+        rounds=2,
+    )
+    calling_turn = make_turn(
+        text="calling",
+        tool_uses=[ToolUseContent(call_id="c1", tool="ctx_spy", args={"text": "x"})],
+    )
+    fake = FakeAdapter(turns=[calling_turn, make_turn(text="done")] * 2)
+    result = run(
+        scenario=scenario,
+        model="claude-test",
+        output_root=tmp_path,
+        adapter=_as_adapter(fake),
+    )
+
+    assert result.status == "ok"
+    assert len(spy.seen) == 2
+
+    assert [c.round_number for c in spy.seen] == [0, 1]
+    assert all(c.acting_agent_id == "alice" for c in spy.seen)
+    assert all(c.run_id == result.run_id for c in spy.seen)
+
+    # The context's turn_id must match the turn_id on that turn's events,
+    # or correlating a tool's view with the trace becomes guesswork.
+    with TraceReader(result.trace_path) as reader:
+        events = reader.read_all()
+    traced = [e.payload.turn_id for e in events if e.event == "tool_call"]
+    assert traced == [c.turn_id for c in spy.seen]
