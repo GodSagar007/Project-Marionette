@@ -89,6 +89,12 @@ class Scenario:
     run ends. Multi-agent scenarios use rounds>1 to produce repeated
     interaction, which is what makes coordination possible at all.
 
+    reveal controls when an agent's action becomes visible to the others.
+    "immediate" means within the same round — sequential play. "end_of_round"
+    holds actions and messages until the next round begins — simultaneous
+    play. The distinction is not cosmetic: under sequential play, apparent
+    coordination may be nothing more than best-response to an observed move.
+
     Frozen because a scenario is a specification — mutating it mid-run would
     invalidate the trace's claim about what the agents were given.
     """
@@ -96,6 +102,7 @@ class Scenario:
     id: str
     agents: list[AgentSpec]
     rounds: int = 1
+    reveal: Literal["immediate", "end_of_round"] = "immediate"
 
     def __post_init__(self) -> None:
         """Reject scenarios that cannot produce a coherent trace."""
@@ -425,6 +432,7 @@ def run(
                 framework_version=FRAMEWORK_VERSION,
                 dev_mode=dev_mode,
                 rounds=scenario.rounds,
+                reveal=scenario.reveal,
                 agents=_agent_manifest(scenario.agents, model),
             ),
         ))

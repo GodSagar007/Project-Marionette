@@ -505,3 +505,44 @@ def test_run_context_reaches_the_tool(tmp_path: Path) -> None:
         events = reader.read_all()
     traced = [e.payload.turn_id for e in events if e.event == "tool_call"]
     assert traced == [c.turn_id for c in spy.seen]
+
+
+def test_reveal_is_recorded_in_run_started(tmp_path: Path) -> None:
+    """reveal is experimental configuration, so it belongs in the trace."""
+    scenario = Scenario(
+        id="simultaneous",
+        agents=[
+            AgentSpec(agent_id="alice", system_prompt="s", initial_user_message="m"),
+            AgentSpec(agent_id="bob", system_prompt="s", initial_user_message="m"),
+        ],
+        rounds=2,
+        reveal="end_of_round",
+    )
+    fake = FakeAdapter(turns=[make_turn(text="ok")] * 4)
+    result = run(
+        scenario=scenario,
+        model="claude-test",
+        output_root=tmp_path,
+        adapter=_as_adapter(fake),
+    )
+
+    with TraceReader(result.trace_path) as reader:
+        started = reader.read_all()[0]
+
+    assert started.payload.reveal == "end_of_round"
+
+
+def test_reveal_defaults_to_immediate(tmp_path: Path) -> None:
+    """Scenarios that don't specify reveal record the default explicitly."""
+    fake = FakeAdapter(turns=[make_turn(text="ok")])
+    result = run(
+        scenario=_make_scenario(),
+        model="claude-test",
+        output_root=tmp_path,
+        adapter=_as_adapter(fake),
+    )
+
+    with TraceReader(result.trace_path) as reader:
+        started = reader.read_all()[0]
+
+    assert started.payload.reveal == "immediate"

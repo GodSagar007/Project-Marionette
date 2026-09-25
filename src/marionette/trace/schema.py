@@ -14,7 +14,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-SCHEMA_VERSION = "2.0.0"
+SCHEMA_VERSION = "2.1.0"
 
 class _StrictBase(BaseModel):
     """Base class for all trace payloads.
@@ -68,6 +68,7 @@ class RunStartedPayload(_StrictBase):
     framework_version: str
     dev_mode: bool
     rounds: int = 1
+    reveal: Literal["immediate", "end_of_round"] = "immediate"
     agents: list[AgentManifestEntry] = Field(default_factory=list)
 
 
@@ -123,6 +124,34 @@ class ToolErrorPayload(_StrictBase):
     error_type: str
     message: str
     turn_id: str | None = None
+
+class InboundPayload(_StrictBase):
+    """Content the runner placed into an agent's context unprompted.
+
+    Covers every way something enters an agent's conversation that the agent
+    did not ask for: a message from another agent, an observation of shared
+    environment state, a mid-run instruction from a principal, or injected
+    adversarial content.
+
+    One event with a source discriminator rather than four event types — the
+    recorded facts are identical in every case: what entered, from where,
+    when it was sent, when it arrived, and under what framing.
+
+    sent_round and delivered_round are both recorded because under
+    end_of_round reveal they differ. The gap is then visible in the data
+    rather than inferred from configuration.
+
+    framing is the prefix as actually applied, not reconstructed from a
+    format string. An injection scenario will deliberately vary or omit it,
+    and the trace must say which was used.
+    """
+
+    source: Literal["agent", "environment", "principal", "injection"]
+    text: str
+    framing: str
+    sent_round: int
+    delivered_round: int
+    from_id: str | None = None
 
 class FrameworkNotePayload(_StrictBase):
     """Payload for framework_note events. Diagnostic instrumentation, not a domain event."""
@@ -219,6 +248,15 @@ class ToolErrorEvent(_EventBase):
     event: Literal["tool_error"] = "tool_error"
     payload: ToolErrorPayload
 
+class InboundEvent(_EventBase):
+    """Records content delivered into an agent's context by the runner.
+
+    agent_id is the *recipient* — the agent whose context received this.
+    The sender, where there is one, is payload.from_id.
+    """
+
+    event: Literal["inbound"] = "inbound"
+    payload: InboundPayload
 
 class FrameworkNoteEvent(_EventBase):
     """Emitted by the framework for diagnostic notes that aren't domain events."""
@@ -242,6 +280,7 @@ TraceEvent = Annotated[
     | ToolResultEvent
     | ToolErrorEvent
     | FrameworkNoteEvent
+    | InboundEvent
     | ModelResponseEvent,
     Field(discriminator="event"),
 ]
