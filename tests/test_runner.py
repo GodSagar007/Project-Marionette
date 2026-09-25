@@ -20,6 +20,7 @@ from marionette.context import RunContext
 from marionette.gateway import Tool
 from marionette.runner import MAX_TURNS, AgentSpec, Scenario, run
 from marionette.tools.echo import EchoArgs, EchoResult, EchoTool
+from marionette.tools.message import SendMessageTool
 from marionette.trace.reader import TraceReader
 from marionette.trace.schema import TokenUsage
 
@@ -546,3 +547,138 @@ def test_reveal_defaults_to_immediate(tmp_path: Path) -> None:
         started = reader.read_all()[0]
 
     assert started.payload.reveal == "immediate"
+
+
+def _two_agents(reveal: str, rounds: int, tools_for_alice: list) -> Scenario:
+    return Scenario(
+        id="messaging",
+        agents=[
+            AgentSpec(
+                agent_id="alice",
+                system_prompt="s",
+                initial_user_message="m",
+                tools=tools_for_alice,
+            ),
+            AgentSpec(agent_id="bob", system_prompt="s", initial_user_message="m"),
+        ],
+        rounds=rounds,
+        reveal=reveal,
+    )
+
+
+def _send_turn(to: str, text: str) -> Turn:
+    return make_turn(
+        text="sending",
+        tool_uses=[
+            ToolUseContent(
+                call_id="c1",
+                tool="send_message",
+                args={"to": to, "text": text},
+            )
+        ],
+    )
+
+
+def test_immediate_reveal_delivers_within_the_same_round(tmp_path: Path) -> None:
+    """Under immediate reveal, a message reaches the next agent to act."""
+    scenario = _two_agents("immediate", 1, [SendMessageTool(roster=["alice", "bob"])])
+    fake = FakeAdapter(turns=[
+        _send_turn("bob", "hold at 90"),
+        make_turn(text="sent"),
+        make_turn(text="ok"),
+    ])
+    result = run(
+        scenario=scenario,
+        model="claude-test",
+        output_root=tmp_path,
+        adapter=_as_adapter(fake),
+    )
+
+    assert result.status == "ok"
+    with TraceReader(result.trace_path) as reader:
+        events = reader.read_all()
+
+    inbound = [e for e in events if e.event == "inbound"]
+    assert len(inbound) == 1
+    assert inbound[0].agent_id == "bob"
+    assert inbound[0].payload.from_id == "alice"
+    assert inbound[0].payload.text == "hold at 90"
+    assert inbound[0].payload.source == "agent"
+    assert inbound[0].payload.sent_round == 0
+    assert inbound[0].payload.delivered_round == 0
+    assert "alice" in inbound[0].payload.framing
+
+
+def test_end_of_round_reveal_holds_until_the_next_round(tmp_path: Path) -> None:
+    """Under end_of_round reveal, nobody can react within the sending round."""
+    scenario = _two_agents(
+        "end_of_round", 2, [SendMessageTool(roster=["alice", "bob"])]
+    )
+    fake = FakeAdapter(turns=[
+        _send_turn("bob", "hold at 90"),
+        make_turn(text="sent"),
+        make_turn(text="ok"),
+        make_turn(text="ok"),
+        make_turn(text="ok"),
+    ])
+    result = run(
+        scenario=scenario,
+        model="claude-test",
+        output_root=tmp_path,
+        adapter=_as_adapter(fake),
+    )
+
+    assert result.status == "ok"
+    with TraceReader(result.trace_path) as reader:
+        events = reader.read_all()
+
+    inbound = [e for e in events if e.event == "inbound"]
+    assert len(inbound) == 1
+    assert inbound[0].payload.sent_round == 0
+    assert inbound[0].payload.delivered_round == 1
+
+
+def test_unknown_recipient_is_recorded_not_dropped(tmp_path: Path) -> None:
+    """A misaddressed message is a recorded attempt, not a silent no-op."""
+    scenario = _two_agents("immediate", 1, [SendMessageTool(roster=["alice", "bob"])])
+    fake = FakeAdapter(turns=[
+        _send_turn("carol", "hello"),
+        make_turn(text="failed"),
+        make_turn(text="ok"),
+    ])
+    result = run(
+        scenario=scenario,
+        model="claude-test",
+        output_root=tmp_path,
+        adapter=_as_adapter(fake),
+    )
+
+    assert result.status == "ok"
+    with TraceReader(result.trace_path) as reader:
+        events = reader.read_all()
+
+    types = [e.event for e in events]
+    assert "tool_error" in types
+    assert "inbound" not in types
+
+
+def test_agent_cannot_message_itself(tmp_path: Path) -> None:
+    """Self-addressed messages are rejected at the tool, before the bus."""
+    scenario = _two_agents("immediate", 1, [SendMessageTool(roster=["alice", "bob"])])
+    fake = FakeAdapter(turns=[
+        _send_turn("alice", "talking to myself"),
+        make_turn(text="failed"),
+        make_turn(text="ok"),
+    ])
+    result = run(
+        scenario=scenario,
+        model="claude-test",
+        output_root=tmp_path,
+        adapter=_as_adapter(fake),
+    )
+
+    with TraceReader(result.trace_path) as reader:
+        events = reader.read_all()
+
+    assert "tool_error" in [e.event for e in events]
+    assert "inbound" not in [e.event for e in events]

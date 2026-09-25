@@ -23,6 +23,7 @@ from marionette.adapter.conversation import (
     TextContent,
     ToolResultContent,
 )
+from marionette.bus import MessageBus
 from marionette.context import RunContext
 from marionette.gateway.gateway import Gateway
 from marionette.gateway.registry import ToolRegistry
@@ -32,6 +33,8 @@ from marionette.trace.schema import (
     AgentManifestEntry,
     AgentMessageEvent,
     AgentMessagePayload,
+    InboundEvent,
+    InboundPayload,
     ModelResponseEvent,
     ModelResponsePayload,
     RunAbortedEvent,
@@ -56,6 +59,10 @@ FRAMEWORK_VERSION = "0.1.0"
 # Echo-smoke finishes in 2-3 turns; this caps the worst case generously.
 MAX_TURNS = 10
 
+# How delivered content is framed in a recipient's conversation. Recorded
+# verbatim on every inbound event: without an explicit marker, another
+# agent's text is indistinguishable from the recipient's own instructions.
+AGENT_MESSAGE_FRAMING = "[message from {from_id}]"
 
 @dataclass(frozen=True)
 class AgentSpec:
@@ -263,6 +270,45 @@ def _build_runtime(
         ),
     )
 
+def _deliver_inbound(
+    rt: _AgentRuntime,
+    writer: TraceWriter,
+    ctx: RunContext,
+    reveal: Literal["immediate", "end_of_round"],
+) -> int:
+    """Place any messages waiting for this agent into its conversation.
+
+    Called before the agent acts. Each delivery is recorded as an inbound
+    event and appended as a user-role message with explicit provenance.
+
+    Returns:
+        The number of events written.
+    """
+    messages = ctx.bus.drain_for(rt.spec.agent_id, ctx.round_number, reveal)
+    if not messages:
+        return 0
+
+    blocks: list[Any] = []
+    for m in messages:
+        framing = AGENT_MESSAGE_FRAMING.format(from_id=m.from_id)
+        writer.write(InboundEvent(
+            actor="framework",
+            agent_id=rt.spec.agent_id,
+            payload=InboundPayload(
+                source="agent",
+                from_id=m.from_id,
+                text=m.text,
+                framing=framing,
+                sent_round=m.sent_round,
+                delivered_round=ctx.round_number,
+            ),
+        ))
+        blocks.append(TextContent(text=f"{framing} {m.text}"))
+
+    rt.conversation = rt.conversation.with_message(
+        Message(role="user", content=blocks)
+    )
+    return len(messages)
 
 def _run_agent_turns(
     rt: _AgentRuntime,
@@ -438,6 +484,8 @@ def run(
         ))
         event_count += 1
 
+        bus = MessageBus()
+
         runtimes = [
             _build_runtime(spec, model, adapter, writer)
             for spec in scenario.agents
@@ -446,18 +494,19 @@ def run(
         # The round loop. Each round, every agent acts once — where "acting
         # once" means driving its own turn loop until it stops calling tools.
         try:
-            for _round_number in range(scenario.rounds):
+            for round_number in range(scenario.rounds):
                 for rt in runtimes:
-                    outcome = _run_agent_turns(
-                        rt,
-                        writer,
-                        RunContext(
-                            run_id=run_id,
-                            round_number=_round_number,
-                            turn_id="",
-                            acting_agent_id=rt.spec.agent_id,
-                        ),
+                    agent_ctx = RunContext(
+                        run_id=run_id,
+                        round_number=round_number,
+                        turn_id="",
+                        acting_agent_id=rt.spec.agent_id,
+                        bus=bus,
                     )
+                    event_count += _deliver_inbound(
+                        rt, writer, agent_ctx, scenario.reveal
+                    )
+                    outcome = _run_agent_turns(rt, writer, agent_ctx)
                     event_count += outcome.events
                     if outcome.hit_turn_limit:
                         status = "aborted"
