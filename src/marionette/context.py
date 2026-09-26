@@ -18,6 +18,7 @@ mutable by design; the context itself is not.
 from dataclasses import dataclass, field
 
 from marionette.bus import MessageBus
+from marionette.environment import EnvironmentStore
 
 
 @dataclass(frozen=True)
@@ -35,6 +36,9 @@ class RunContext:
             run — the same object is referenced by every turn's context, so
             a message queued in one turn is visible when the runner drains
             in another.
+        env: Shared world state — what every agent has done, and when. Like
+            bus, the same object is carried forward by replace(), so a
+            record written in one turn is visible in another.
     """
 
     run_id: str
@@ -42,3 +46,4 @@ class RunContext:
     turn_id: str
     acting_agent_id: str
     bus: MessageBus = field(default_factory=MessageBus)
+    env: EnvironmentStore = field(default_factory=EnvironmentStore)

@@ -25,6 +25,7 @@ from marionette.adapter.conversation import (
 )
 from marionette.bus import MessageBus
 from marionette.context import RunContext
+from marionette.environment import EnvironmentStore
 from marionette.gateway.gateway import Gateway
 from marionette.gateway.registry import ToolRegistry
 from marionette.gateway.tool import Tool
@@ -63,6 +64,10 @@ MAX_TURNS = 10
 # verbatim on every inbound event: without an explicit marker, another
 # agent's text is indistinguishable from the recipient's own instructions.
 AGENT_MESSAGE_FRAMING = "[message from {from_id}]"
+
+# Framing for environment observations. Distinct from agent messages so a
+# recipient can tell a rival's action from a rival's claim about its action.
+ENVIRONMENT_FRAMING = "[market]"
 
 @dataclass(frozen=True)
 class AgentSpec:
@@ -285,10 +290,15 @@ def _deliver_inbound(
         The number of events written.
     """
     messages = ctx.bus.drain_for(rt.spec.agent_id, ctx.round_number, reveal)
-    if not messages:
+    records = ctx.env.latest_round_visible_to(
+        rt.spec.agent_id, ctx.round_number, reveal
+    )
+    if not messages and not records:
         return 0
 
     blocks: list[Any] = []
+    events = 0
+
     for m in messages:
         framing = AGENT_MESSAGE_FRAMING.format(from_id=m.from_id)
         writer.write(InboundEvent(
@@ -304,11 +314,30 @@ def _deliver_inbound(
             ),
         ))
         blocks.append(TextContent(text=f"{framing} {m.text}"))
+        events += 1
+
+    for r in records:
+        text = f"{r.agent_id} {r.summary}"
+        writer.write(InboundEvent(
+            actor="framework",
+            agent_id=rt.spec.agent_id,
+            payload=InboundPayload(
+                source="environment",
+                from_id=r.agent_id,
+                text=text,
+                framing=ENVIRONMENT_FRAMING,
+                sent_round=r.round_number,
+                delivered_round=ctx.round_number,
+            ),
+        ))
+        blocks.append(TextContent(text=f"{ENVIRONMENT_FRAMING} {text}"))
+        events += 1
 
     rt.conversation = rt.conversation.with_message(
         Message(role="user", content=blocks)
     )
-    return len(messages)
+    return events
+
 
 def _run_agent_turns(
     rt: _AgentRuntime,
@@ -485,7 +514,7 @@ def run(
         event_count += 1
 
         bus = MessageBus()
-
+        env = EnvironmentStore()
         runtimes = [
             _build_runtime(spec, model, adapter, writer)
             for spec in scenario.agents
@@ -502,6 +531,7 @@ def run(
                         turn_id="",
                         acting_agent_id=rt.spec.agent_id,
                         bus=bus,
+                        env=env,
                     )
                     event_count += _deliver_inbound(
                         rt, writer, agent_ctx, scenario.reveal

@@ -11,7 +11,8 @@ is what makes simultaneous play simultaneous.
 """
 
 from dataclasses import dataclass, field
-from typing import Literal
+
+from marionette.reveal import Reveal, is_visible
 
 
 @dataclass(frozen=True)
@@ -50,7 +51,7 @@ class MessageBus:
         self,
         agent_id: str,
         current_round: int,
-        reveal: Literal["immediate", "end_of_round"],
+        reveal: Reveal,
     ) -> list[PendingMessage]:
         """Remove and return the messages deliverable to an agent right now.
 
@@ -68,8 +69,8 @@ class MessageBus:
         ready: list[PendingMessage] = []
         held: list[PendingMessage] = []
         for m in self._pending:
-            deliverable = m.to_id == agent_id and (
-                reveal == "immediate" or m.sent_round < current_round
+            deliverable = m.to_id == agent_id and is_visible(
+                m.sent_round, current_round, reveal
             )
             (ready if deliverable else held).append(m)
         self._pending = held
