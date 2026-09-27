@@ -32,13 +32,16 @@ class EnvironmentRecord:
         data: The same action as structured values, for analysis. Not shown
             to agents. Usually redundant with the tool_call event's args, and
             kept here so an analyser can read the environment alone.
+        audience: Who may see this. None means public — any other agent may
+            observe it. A name means private to that agent: a rival's price
+            is public, a seller's own profit is not.
     """
 
     agent_id: str
     round_number: int
     summary: str
     data: dict[str, Any] = field(default_factory=dict)
-
+    audience: str | None = None
 
 @dataclass
 class EnvironmentStore:
@@ -63,18 +66,34 @@ class EnvironmentStore:
     ) -> list[EnvironmentRecord]:
         """Records another agent made that this agent may now see.
 
-        Excludes the agent's own actions: an agent already knows what it did,
-        and echoing it back would pad the context and confound any measure of
-        what the agent was responding to.
+        Public records from other agents, plus private records addressed to
+        this one. An agent therefore sees a rival's price and its own
+        profit, but not its own price echoed back and not a rival's profit.
 
         Records are not removed. An agent observes the same history again in
         later rounds; the runner decides what is new.
         """
         return [
             r for r in self._records
-            if r.agent_id != agent_id
+            if self._audible_to(r, agent_id)
             and is_visible(r.round_number, current_round, reveal)
         ]
+
+    @staticmethod
+    def _audible_to(record: EnvironmentRecord, agent_id: str) -> bool:
+        """Whether a record is addressed to this agent.
+
+        Private records reach their addressee and nobody else — including
+        when the addressee is also the agent the record is about, which is
+        the normal case for an outcome.
+
+        Public records reach everyone except the agent that produced them.
+        An agent already knows what it did, and echoing it back pads the
+        context and confounds any measure of what it was responding to.
+        """
+        if record.audience is not None:
+            return record.audience == agent_id
+        return record.agent_id != agent_id
 
     def latest_round_visible_to(
         self,
