@@ -25,19 +25,24 @@ from marionette.adapter.conversation import (
 )
 from marionette.bus import MessageBus
 from marionette.context import RunContext
-from marionette.environment import EnvironmentStore
+from marionette.environment import EnvironmentRecord, EnvironmentStore
 from marionette.gateway.gateway import Gateway
 from marionette.gateway.registry import ToolRegistry
 from marionette.gateway.tool import Tool
+from marionette.resolver import Resolver
 from marionette.trace.schema import (
     SCHEMA_VERSION,
     AgentManifestEntry,
     AgentMessageEvent,
     AgentMessagePayload,
+    EnvironmentRecordEntry,
     InboundEvent,
     InboundPayload,
     ModelResponseEvent,
     ModelResponsePayload,
+    ResolverManifest,
+    RoundResolvedEvent,
+    RoundResolvedPayload,
     RunAbortedEvent,
     RunAbortedPayload,
     RunCompletedEvent,
@@ -107,6 +112,11 @@ class Scenario:
     play. The distinction is not cosmetic: under sequential play, apparent
     coordination may be nothing more than best-response to an observed move.
 
+    resolver, when set, computes what a round's actions produced. It runs
+    once per completed round and its records enter the environment, becoming
+    observable in the round that follows. Scenarios with no notion of
+    outcome — sandbagging, for instance — leave it None.
+
     Frozen because a scenario is a specification — mutating it mid-run would
     invalidate the trace's claim about what the agents were given.
     """
@@ -115,6 +125,7 @@ class Scenario:
     agents: list[AgentSpec]
     rounds: int = 1
     reveal: Literal["immediate", "end_of_round"] = "immediate"
+    resolver: Resolver | None = None
 
     def __post_init__(self) -> None:
         """Reject scenarios that cannot produce a coherent trace."""
@@ -273,6 +284,42 @@ def _build_runtime(
                 content=[TextContent(text=spec.initial_user_message)],
             )
         ),
+    )
+
+def _resolve_round(
+    resolver: Resolver,
+    env: EnvironmentStore,
+    writer: TraceWriter,
+    round_number: int,
+) -> int:
+    """Compute and record the outcome of a completed round.
+
+    Called only for rounds that finished. An aborted round has an incomplete
+    set of actions, and resolving it would record an outcome that never
+    happened.
+    """
+    records = resolver.resolve(env, round_number)
+    for r in records:
+        env.record(r)
+
+    writer.write(RoundResolvedEvent(
+        actor="framework",
+        payload=RoundResolvedPayload(
+            round_number=round_number,
+            records=[_record_entry(r) for r in records],
+        ),
+    ))
+    return 1
+
+
+def _record_entry(r: EnvironmentRecord) -> EnvironmentRecordEntry:
+    """Convert a runtime record to its trace form."""
+    return EnvironmentRecordEntry(
+        agent_id=r.agent_id,
+        round_number=r.round_number,
+        summary=r.summary,
+        data=r.data,
+        audience=r.audience,
     )
 
 def _deliver_inbound(
@@ -508,6 +555,15 @@ def run(
                 dev_mode=dev_mode,
                 rounds=scenario.rounds,
                 reveal=scenario.reveal,
+                resolver=(
+                    ResolverManifest(
+                        name=scenario.resolver.name,
+                        description=scenario.resolver.description,
+                        params=scenario.resolver.params,
+                    )
+                    if scenario.resolver is not None
+                    else None
+                ),
                 agents=_agent_manifest(scenario.agents, model),
             ),
         ))
@@ -545,6 +601,10 @@ def run(
                             f"turn limit ({MAX_TURNS})"
                         )
                         break
+                if status != "aborted" and scenario.resolver is not None:
+                    event_count += _resolve_round(
+                        scenario.resolver, env, writer, round_number
+                    )
                 if status == "aborted":
                     break
 

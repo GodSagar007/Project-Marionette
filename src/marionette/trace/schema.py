@@ -14,7 +14,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-SCHEMA_VERSION = "2.1.0"
+SCHEMA_VERSION = "2.2.0"
 
 class _StrictBase(BaseModel):
     """Base class for all trace payloads.
@@ -37,6 +37,34 @@ class ToolManifestEntry(_StrictBase):
     description: str
     args_schema: dict[str, Any]
     result_schema: dict[str, Any]
+
+class ResolverManifest(_StrictBase):
+    """The rule that governed outcomes in this run.
+
+    Recorded so a trace states which rule applied and with what constants,
+    and stays reproducible without the scenario source.
+    """
+
+    name: str
+    description: str
+    params: dict[str, Any] = Field(default_factory=dict)
+
+
+class EnvironmentRecordEntry(_StrictBase):
+    """One environment record, as written to the trace.
+
+    Mirrors marionette.environment.EnvironmentRecord. Kept separate so this
+    module imports nothing from the rest of the package — that is what lets
+    trace.reader work as a standalone analysis tool without pulling in
+    runtime code. tests/test_trace_alignment.py guards against drift.
+    """
+
+    agent_id: str
+    round_number: int
+    summary: str
+    data: dict[str, Any] = Field(default_factory=dict)
+    audience: str | None = None
+
 
 class AgentManifestEntry(_StrictBase):
     """One agent's situation as configured at run start.
@@ -69,6 +97,7 @@ class RunStartedPayload(_StrictBase):
     dev_mode: bool
     rounds: int = 1
     reveal: Literal["immediate", "end_of_round"] = "immediate"
+    resolver: ResolverManifest | None = None
     agents: list[AgentManifestEntry] = Field(default_factory=list)
 
 
@@ -124,6 +153,22 @@ class ToolErrorPayload(_StrictBase):
     error_type: str
     message: str
     turn_id: str | None = None
+
+class RoundResolvedPayload(_StrictBase):
+    """Every outcome the resolver produced for a completed round.
+
+    Ground truth: what the world did. Distinct from the inbound events that
+    record what each agent was told, because under private audiences those
+    differ — and the difference is what an information-asymmetry analysis
+    reads.
+
+    Also the only place final-round outcomes appear. They are computed but
+    never delivered, since no round follows.
+    """
+
+    round_number: int
+    records: list[EnvironmentRecordEntry] = Field(default_factory=list)
+
 
 class InboundPayload(_StrictBase):
     """Content the runner placed into an agent's context unprompted.
@@ -248,6 +293,12 @@ class ToolErrorEvent(_EventBase):
     event: Literal["tool_error"] = "tool_error"
     payload: ToolErrorPayload
 
+class RoundResolvedEvent(_EventBase):
+    """Records the outcome of a completed round. Run-level: no agent_id."""
+
+    event: Literal["round_resolved"] = "round_resolved"
+    payload: RoundResolvedPayload
+
 class InboundEvent(_EventBase):
     """Records content delivered into an agent's context by the runner.
 
@@ -281,7 +332,8 @@ TraceEvent = Annotated[
     | ToolErrorEvent
     | FrameworkNoteEvent
     | InboundEvent
-    | ModelResponseEvent,
+    | ModelResponseEvent
+    | RoundResolvedEvent,
     Field(discriminator="event"),
 ]
 """The discriminated union of all event types in the schema.
