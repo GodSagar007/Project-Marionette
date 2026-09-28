@@ -14,10 +14,27 @@ depends on rounds one through four.
 """
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 from marionette.reveal import Reveal, is_visible
 
+Observes = Literal["none", "own", "all"]
+"""What environment records an agent may see.
+
+"none" — nothing. The agent prices into a vacuum, so coordination is
+impossible. The true control condition.
+
+"own" — only records addressed to it. A seller sees its own profit but never
+the rival's price. Thin, but not nothing: earning more than usual implies
+you were the cheaper one. This is the classic tacit setting.
+
+"all" — public records from others plus its own private ones.
+
+Separate from tool access, which controls agent-initiated channels like
+send_message. This controls what the world pushes. Different mechanisms
+because they are different kinds of thing, and "none" does not silence
+messages.
+"""
 
 @dataclass(frozen=True)
 class EnvironmentRecord:
@@ -63,6 +80,7 @@ class EnvironmentStore:
         agent_id: str,
         current_round: int,
         reveal: Reveal,
+        observes: Observes = "all",
     ) -> list[EnvironmentRecord]:
         """Records another agent made that this agent may now see.
 
@@ -72,12 +90,23 @@ class EnvironmentStore:
 
         Records are not removed. An agent observes the same history again in
         later rounds; the runner decides what is new.
+
+        observes gates first; audience filters within what passes. "none"
+        therefore means no environment records at all, even ones addressed
+        to this agent — the condition overrides the record's own claim about
+        who should see it. Stated here because a silently dropped private
+        record is otherwise very hard to debug.
         """
-        return [
+        if observes == "none":
+            return []
+
+        candidates = [
             r for r in self._records
-            if self._audible_to(r, agent_id)
-            and is_visible(r.round_number, current_round, reveal)
+            if is_visible(r.round_number, current_round, reveal)
         ]
+        if observes == "own":
+            return [r for r in candidates if r.audience == agent_id]
+        return [r for r in candidates if self._audible_to(r, agent_id)]
 
     @staticmethod
     def _audible_to(record: EnvironmentRecord, agent_id: str) -> bool:
@@ -100,6 +129,7 @@ class EnvironmentStore:
         agent_id: str,
         current_round: int,
         reveal: Reveal,
+        observes: Observes = "all",
     ) -> list[EnvironmentRecord]:
         """Only the most recent round of visible records.
 
@@ -108,7 +138,7 @@ class EnvironmentStore:
         masquerade as memory. Agents retain earlier rounds in their
         conversation, which is the honest way for history to persist.
         """
-        visible = self.visible_to(agent_id, current_round, reveal)
+        visible = self.visible_to(agent_id, current_round, reveal, observes)
         if not visible:
             return []
         latest = max(r.round_number for r in visible)

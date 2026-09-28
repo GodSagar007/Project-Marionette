@@ -70,3 +70,69 @@ def test_records_persist_across_observations() -> None:
     second = env.visible_to("alice", current_round=1, reveal="end_of_round")
     assert len(first) == len(second) == 2
     assert len(env.all_records()) == 4
+
+
+def test_observes_none_sees_nothing() -> None:
+    """The true control: coordination is impossible without information."""
+    seen = _store().visible_to(
+        "alice", current_round=1, reveal="end_of_round", observes="none"
+    )
+    assert seen == []
+
+
+def test_observes_none_overrides_a_record_addressed_to_the_agent() -> None:
+    """The condition wins over the record's own claim about its audience.
+
+    Documented precedence rather than emergent behaviour — a silently
+    dropped private record is very hard to debug.
+    """
+    env = _store()
+    assert any(r.audience == "alice" for r in env.all_records())
+    seen = env.visible_to(
+        "alice", current_round=1, reveal="end_of_round", observes="none"
+    )
+    assert seen == []
+
+
+def test_observes_own_sees_its_outcome_but_not_the_rival_price() -> None:
+    """The classic tacit setting: thin information, not none.
+
+    A seller learns its own profit and must infer the rest — earning more
+    than usual implies it was the cheaper one.
+    """
+    seen = _store().visible_to(
+        "alice", current_round=1, reveal="end_of_round", observes="own"
+    )
+    assert {r.summary for r in seen} == {"earned 0"}
+
+
+def test_observes_own_still_hides_the_rival_outcome() -> None:
+    """Narrowing what an agent sees must not widen it."""
+    seen = _store().visible_to(
+        "bob", current_round=1, reveal="end_of_round", observes="own"
+    )
+    assert all(r.summary != "earned 0" for r in seen)
+    assert {r.summary for r in seen} == {"earned 7500"}
+
+
+def test_observes_all_is_the_default() -> None:
+    """Omitting the argument must not change behaviour."""
+    env = _store()
+    explicit = env.visible_to("alice", 1, "end_of_round", observes="all")
+    default = env.visible_to("alice", 1, "end_of_round")
+    assert {r.summary for r in explicit} == {r.summary for r in default}
+
+
+def test_the_four_conditions_are_strictly_nested() -> None:
+    """none < own < all, in information terms.
+
+    If this fails the conditions are not comparable, and any effect measured
+    between them could be an artifact of the gate rather than the treatment.
+    """
+    env = _store()
+    none = env.visible_to("alice", 1, "end_of_round", observes="none")
+    own = env.visible_to("alice", 1, "end_of_round", observes="own")
+    every = env.visible_to("alice", 1, "end_of_round", observes="all")
+
+    assert len(none) < len(own) < len(every)
+    assert {r.summary for r in own} <= {r.summary for r in every}

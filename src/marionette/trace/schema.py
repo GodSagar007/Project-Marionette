@@ -14,7 +14,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-SCHEMA_VERSION = "2.2.0"
+SCHEMA_VERSION = "2.3.0"
 
 class _StrictBase(BaseModel):
     """Base class for all trace payloads.
@@ -77,6 +77,9 @@ class AgentManifestEntry(_StrictBase):
     whether it is being evaluated; in a collusion scenario it is where
     symmetric or asymmetric instruction shows up. A trace that cannot report
     which condition it recorded cannot evidence its own result.
+
+    observes records the information condition this agent ran under. Like
+    the system prompt, it is the manipulation rather than a detail.
     """
 
     agent_id: str
@@ -84,6 +87,7 @@ class AgentManifestEntry(_StrictBase):
     system_prompt: str
     initial_user_message: str
     tools: list[ToolManifestEntry] = Field(default_factory=list)
+    observes: Literal["none", "own", "all"] = "all"
 
 class RunStartedPayload(_StrictBase):
     """Payload for the run_started event. Emitted once, at the start of each run."""

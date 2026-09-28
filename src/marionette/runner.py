@@ -25,7 +25,7 @@ from marionette.adapter.conversation import (
 )
 from marionette.bus import MessageBus
 from marionette.context import RunContext
-from marionette.environment import EnvironmentRecord, EnvironmentStore
+from marionette.environment import EnvironmentRecord, EnvironmentStore, Observes
 from marionette.gateway.gateway import Gateway
 from marionette.gateway.registry import ToolRegistry
 from marionette.gateway.tool import Tool
@@ -36,6 +36,8 @@ from marionette.trace.schema import (
     AgentMessageEvent,
     AgentMessagePayload,
     EnvironmentRecordEntry,
+    FrameworkNoteEvent,
+    FrameworkNotePayload,
     InboundEvent,
     InboundPayload,
     ModelResponseEvent,
@@ -85,13 +87,17 @@ class AgentSpec:
     Tools are per-agent deliberately. Asymmetric capability is a research
     variable, not an edge case — one agent may hold a communication channel
     another does not.
+
+    observes is the information condition. Per-agent because asymmetric
+    information is a condition someone will want — one seller watching the
+    market while the other cannot is a real experiment, not an edge case.
     """
 
     agent_id: str
     system_prompt: str
     initial_user_message: str
     tools: list[Tool[Any, Any]] = field(default_factory=list)
-
+    observes: Observes = "all"
 
 @dataclass(frozen=True)
 class Scenario:
@@ -247,6 +253,7 @@ def _agent_manifest(specs: list[AgentSpec], model: str) -> list[AgentManifestEnt
             system_prompt=spec.system_prompt,
             initial_user_message=spec.initial_user_message,
             tools=_tools_manifest(spec.tools),
+            observes=spec.observes,
         )
         for spec in specs
     ]
@@ -338,7 +345,7 @@ def _deliver_inbound(
     """
     messages = ctx.bus.drain_for(rt.spec.agent_id, ctx.round_number, reveal)
     records = ctx.env.latest_round_visible_to(
-        rt.spec.agent_id, ctx.round_number, reveal
+        rt.spec.agent_id, ctx.round_number, reveal, rt.spec.observes
     )
     if not messages and not records:
         return 0
@@ -571,6 +578,25 @@ def run(
 
         bus = MessageBus()
         env = EnvironmentStore()
+        # A resolver writing outcomes to an agent that cannot see them is a
+        # legal configuration and occasionally the intended one, but it is
+        # also the easiest way to run a condition you did not mean to. Note
+        # it in the trace rather than letting it be silent.
+        if scenario.resolver is not None:
+            blind = [a.agent_id for a in scenario.agents if a.observes == "none"]
+            if blind:
+                writer.write(FrameworkNoteEvent(
+                    actor="framework",
+                    payload=FrameworkNotePayload(
+                        text=(
+                            f"resolver {scenario.resolver.name!r} is active but "
+                            f"{', '.join(blind)} observes=none; outcomes are "
+                            "computed and recorded but never delivered to them"
+                        ),
+                        level="warning",
+                    ),
+                ))
+                event_count += 1
         runtimes = [
             _build_runtime(spec, model, adapter, writer)
             for spec in scenario.agents
