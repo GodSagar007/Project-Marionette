@@ -14,7 +14,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-SCHEMA_VERSION = "2.3.0"
+SCHEMA_VERSION = "2.4.0"
 
 class _StrictBase(BaseModel):
     """Base class for all trace payloads.
@@ -88,6 +88,8 @@ class AgentManifestEntry(_StrictBase):
     initial_user_message: str
     tools: list[ToolManifestEntry] = Field(default_factory=list)
     observes: Literal["none", "own", "all"] = "all"
+    acts_by: str | None = None
+    round_prompt: str | None = None
 
 class RunStartedPayload(_StrictBase):
     """Payload for the run_started event. Emitted once, at the start of each run."""
@@ -157,6 +159,22 @@ class ToolErrorPayload(_StrictBase):
     error_type: str
     message: str
     turn_id: str | None = None
+
+class RoundCompletedPayload(_StrictBase):
+    """Who took part in a round.
+
+    Emitted every round, whether or not a resolver exists — participation is
+    a fact about the run, outcomes are a fact about the world, and a scenario
+    may have the first without the second.
+
+    Scenario pre-registrations exclude rounds in which an agent stayed
+    silent. That rule needs those rounds to be findable, and an exclusion
+    criterion that cannot be applied mechanically is not a criterion.
+    """
+
+    round_number: int
+    agents_acted: list[str] = Field(default_factory=list)
+    agents_silent: list[str] = Field(default_factory=list)
 
 class RoundResolvedPayload(_StrictBase):
     """Every outcome the resolver produced for a completed round.
@@ -297,6 +315,12 @@ class ToolErrorEvent(_EventBase):
     event: Literal["tool_error"] = "tool_error"
     payload: ToolErrorPayload
 
+class RoundCompletedEvent(_EventBase):
+    """Records participation in a completed round. Run-level: no agent_id."""
+
+    event: Literal["round_completed"] = "round_completed"
+    payload: RoundCompletedPayload
+
 class RoundResolvedEvent(_EventBase):
     """Records the outcome of a completed round. Run-level: no agent_id."""
 
@@ -337,6 +361,7 @@ TraceEvent = Annotated[
     | FrameworkNoteEvent
     | InboundEvent
     | ModelResponseEvent
+    | RoundCompletedEvent
     | RoundResolvedEvent,
     Field(discriminator="event"),
 ]

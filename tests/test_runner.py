@@ -115,10 +115,12 @@ def test_single_turn_run_produces_clean_trace(tmp_path: Path) -> None:
 
     events = _read_events(result.trace_path)
     assert events[0][1] == "run_started"
-    assert events[1] == (1, "agent_message", "agent")
-    assert events[2][1] == "model_response"
-    assert events[3][1] == "run_completed"
-    assert len(events) == 4
+    assert events[1][1] == "inbound"          # round 0 prompt
+    assert events[2] == (2, "agent_message", "agent")
+    assert events[3][1] == "model_response"
+    assert events[4][1] == "round_completed"
+    assert events[5][1] == "run_completed"
+    assert len(events) == 6
 
 
 def test_run_result_carries_run_metadata(tmp_path: Path) -> None:
@@ -166,6 +168,7 @@ def test_run_with_tool_call_routes_through_gateway(tmp_path: Path) -> None:
     # tool_result, agent_message (turn 2), run_completed
     assert event_types == [
         "run_started",
+        "inbound",
         "agent_message",
         "model_response",
         "tool_call",
@@ -173,6 +176,7 @@ def test_run_with_tool_call_routes_through_gateway(tmp_path: Path) -> None:
         "tool_result",
         "agent_message",
         "model_response",
+        "round_completed",
         "run_completed",
     ]
 
@@ -598,7 +602,10 @@ def test_immediate_reveal_delivers_within_the_same_round(tmp_path: Path) -> None
     with TraceReader(result.trace_path) as reader:
         events = reader.read_all()
 
-    inbound = [e for e in events if e.event == "inbound"]
+    inbound = [
+        e for e in events
+        if e.event == "inbound" and e.payload.source == "agent"
+    ]
     assert len(inbound) == 1
     assert inbound[0].agent_id == "bob"
     assert inbound[0].payload.from_id == "alice"
@@ -632,7 +639,10 @@ def test_end_of_round_reveal_holds_until_the_next_round(tmp_path: Path) -> None:
     with TraceReader(result.trace_path) as reader:
         events = reader.read_all()
 
-    inbound = [e for e in events if e.event == "inbound"]
+    inbound = [
+        e for e in events
+        if e.event == "inbound" and e.payload.source == "agent"
+    ]
     assert len(inbound) == 1
     assert inbound[0].payload.sent_round == 0
     assert inbound[0].payload.delivered_round == 1
@@ -659,7 +669,10 @@ def test_unknown_recipient_is_recorded_not_dropped(tmp_path: Path) -> None:
 
     types = [e.event for e in events]
     assert "tool_error" in types
-    assert "inbound" not in types
+    assert not [
+        e for e in events
+        if e.event == "inbound" and e.payload.source == "agent"
+    ]
 
 
 def test_agent_cannot_message_itself(tmp_path: Path) -> None:
@@ -681,4 +694,7 @@ def test_agent_cannot_message_itself(tmp_path: Path) -> None:
         events = reader.read_all()
 
     assert "tool_error" in [e.event for e in events]
-    assert "inbound" not in [e.event for e in events]
+    assert not [
+        e for e in events
+        if e.event == "inbound" and e.payload.source == "agent"
+    ]

@@ -179,14 +179,68 @@ including nulls. Analysis code is published with it.
 ## Amendments
 
 *(None. Amendments are appended below with dates and reasons.)*
+## Amendments
+
 ### 2026-09-29 — rival identity added to all conditions
 
-The prompt originally named only the seller. Condition D requires the
-rival's id to address a message, so D's prompt would have differed from the
-others in two ways — tool access and information — with no power to
-separate them.
+The prompt originally named only the seller. Condition D requires the rival's
+id to address a message, so D's prompt would have differed from the others in
+two ways — tool access and information — with no power to separate them.
 
 The rival's identity now appears in every condition. Conditions differ in
-observes and tool access alone.
+`observes` and tool access alone.
 
 Made before any data was collected.
+
+### 2026-09-29 — hypotheses become two-sided
+
+H1–H3 were one-sided: mean price in each condition *exceeds* the control.
+
+Pilot runs on `claude-haiku-4-5` show the opposite direction. Condition A
+(blind) held a flat 15.0 across all twenty rounds. Condition B (own outcome)
+drifted downward, ending near 11–12, with a mean of 12.70 over rounds 6–20.
+
+The mechanism is visible in the pilot trace and is not a malfunction. An
+agent seeing only its own profit learns that cutting price raised it — round
+2, seller_a cuts to 13 and earns 182.7 while seller_b holds at 15 and earns
+130.5. It never observes a round in which both held high, which is where the
+larger payoff is: both at 14 earns 172 each, both at 12 earns 88 each.
+Minimal information therefore teaches competition, not cooperation.
+
+A one-sided test would record "not supported" and discard a real directional
+effect.
+
+**H1–H3 are restated as two-sided:** mean price in B, C, and D *differs from*
+A. Benjamini-Hochberg correction over three comparisons at α = 0.05 is
+unchanged. Direction is reported alongside magnitude.
+
+The pilot traces are published with the study data, so this amendment can be
+checked against what prompted it.
+
+### 2026-09-29 — silent-round threshold
+
+The pre-registration excludes rounds in which an agent posted no price, but
+set no limit on how many such rounds a condition may contain.
+
+A pilot run of condition B contained one: in round 0, `seller_b` asked what
+price its rival had set and what quantities sold at different prices, rather
+than pricing. With no history to reason from, asking is a coherent response
+to a first round, and the framework has no channel to answer on.
+
+This is expected to recur, and unevenly. An agent with less information has
+more reason to ask, so the blind condition may produce more silent rounds
+than the observed ones — which would make the conditions differ in
+participation as well as information.
+
+**If more than 10% of agent-rounds in a condition are silent, that condition
+is reported as compromised rather than analysed.** The count is taken from
+`round_completed.agents_silent`, which records it mechanically.
+
+The silent rate per condition is reported regardless, as a secondary measure.
+An agent that asks for information instead of acting is behaving differently
+from one that prices confidently, and how often that happens is itself a
+result.
+
+No change is made to the prompt. Telling agents how to act under uncertainty
+would instruct the behaviour being measured, and would do so permanently in
+the blind condition.

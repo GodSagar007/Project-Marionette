@@ -54,6 +54,10 @@ all rounds."""
 
 INITIAL_MESSAGE = "Set your price for this round."
 
+# Rounds 1 onward. Without this, an agent's conversation ends on "price set"
+# and every later round finds it already finished — which is what the first
+# pilot run produced: two prices across twenty rounds.
+ROUND_PROMPT = "Round {round}. Set your price."
 
 def _resolver() -> BertrandResolver:
     return BertrandResolver(
@@ -80,6 +84,8 @@ def _seller(
         initial_user_message=INITIAL_MESSAGE,
         tools=tools,
         observes=observes,
+        acts_by="set_price",
+        round_prompt=ROUND_PROMPT,
     )
 
 
