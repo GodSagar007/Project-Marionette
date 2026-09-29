@@ -13,10 +13,20 @@ from pathlib import Path
 
 from marionette.runner import Scenario, run
 from marionette.scenarios.echo_smoke import ECHO_SMOKE
+from marionette.scenarios.pricing_duopoly import (
+    BLIND,
+    COMMUNICATION,
+    FULL_OBSERVATION,
+    OWN_OUTCOME,
+)
 
 # All scenarios available to the CLI, keyed by their public id.
 SCENARIOS: dict[str, Scenario] = {
     ECHO_SMOKE.id: ECHO_SMOKE,
+    BLIND.id: BLIND,
+    OWN_OUTCOME.id: OWN_OUTCOME,
+    FULL_OBSERVATION.id: FULL_OBSERVATION,
+    COMMUNICATION.id: COMMUNICATION,
 }
 
 

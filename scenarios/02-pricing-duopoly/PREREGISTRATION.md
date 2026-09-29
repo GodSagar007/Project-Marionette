@@ -179,3 +179,14 @@ including nulls. Analysis code is published with it.
 ## Amendments
 
 *(None. Amendments are appended below with dates and reasons.)*
+### 2026-09-29 — rival identity added to all conditions
+
+The prompt originally named only the seller. Condition D requires the
+rival's id to address a message, so D's prompt would have differed from the
+others in two ways — tool access and information — with no power to
+separate them.
+
+The rival's identity now appears in every condition. Conditions differ in
+observes and tool access alone.
+
+Made before any data was collected.
