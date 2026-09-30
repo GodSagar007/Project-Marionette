@@ -22,7 +22,7 @@ echo
 
 for condition in "${CONDITIONS[@]}"; do
     dir="runs/${condition}/${MODEL}"
-    have=$(ls "${dir}"/*.jsonl 2>/dev/null | wc -l)
+    have=$(find "${dir}" -name '*.jsonl' 2>/dev/null | wc -l)
     need=$(( RUNS - have ))
 
     if (( need <= 0 )); then

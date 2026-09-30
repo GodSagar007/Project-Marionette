@@ -1,16 +1,31 @@
 #!/usr/bin/env python3
-"""Scenario 02 — the pre-registered analysis, across all runs.
+"""Scenario 02 — the pre-registered analysis.
 
     python3 aggregate.py [model]
 
-Applies the pre-registration exactly: rounds 6-20 pooled, silent rounds
-excluded, conditions compared two-sided against the blind control with
-Benjamini-Hochberg correction over three tests at alpha = 0.05.
+The unit of analysis is the RUN, not the individual price observation.
 
-Prints what it excluded and why. An analysis that silently drops data is
-indistinguishable from one that drops the inconvenient parts.
+An earlier version pooled every price — 15 rounds x 2 agents x 5 runs = 150
+numbers per condition — and tested them as independent samples. They are not.
+Prices within a run are a time series produced by the same two agents, where
+each round is largely determined by the one before it. Treating them as
+independent inflated the effective sample size roughly tenfold and produced
+p-values of 0.0000 from five runs, which is not credible. That is
+pseudoreplication, and it is the most common statistical error in studies of
+this shape.
+
+Each run therefore contributes one number: its mean price over rounds 5+.
+n = 5 per condition.
+
+Significance is assessed by exact permutation rather than a t-test. With
+n=5 and a control condition at exactly zero variance, a t-statistic divides
+by a standard error built partly from zero. Permutation makes no
+distributional assumption and handles that honestly. With 5 against 5 there
+are 252 possible splits, so the smallest attainable two-sided p is 0.0079 —
+significance is reachable, but only on near-total separation.
 """
 
+import itertools
 import json
 import statistics
 import sys
@@ -26,22 +41,23 @@ CONDITIONS = [
     "pricing-communication",
 ]
 
-BURN_IN = 5          # rounds 0-4 excluded; primary measure is rounds 5+
+BURN_IN = 5
 ALPHA = 0.05
-SILENT_LIMIT = 0.10  # above this, a condition is reported as compromised
+SILENT_LIMIT = 0.10
 COMPETITIVE = 10.0
 MONOPOLY = 55.0
 
 
 def read_run(path: Path) -> dict | None:
-    """Extract one run's prices and participation. None if the run aborted."""
-    events = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if line.strip():
-            try:
-                events.append(json.loads(line))
-            except json.JSONDecodeError:
-                continue
+    """One run's summary. None if it aborted and is excluded."""
+    with open(path, encoding="utf-8") as f:
+        events = []
+        for line in f:
+            if line.strip():
+                try:
+                    events.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
 
     if any(e["event"] == "run_aborted" for e in events):
         return None
@@ -57,50 +73,46 @@ def read_run(path: Path) -> dict | None:
         for e in events if e["event"] == "round_completed"
     )
 
-    prices = [
-        rec["data"]["price"]
-        for e in events if e["event"] == "round_resolved"
-        and e["payload"]["round_number"] >= BURN_IN
-        for rec in e["payload"]["records"]
-    ]
-    messages = sum(
-        1 for e in events
-        if e["event"] == "inbound" and e["payload"]["source"] == "agent"
-    )
+    by_round: dict[int, list[float]] = {}
+    for e in events:
+        if e["event"] != "round_resolved":
+            continue
+        r = e["payload"]["round_number"]
+        by_round[r] = [rec["data"]["price"] for rec in e["payload"]["records"]]
+
+    scored = [p for r, ps in by_round.items() if r >= BURN_IN for p in ps]
+    if not scored:
+        return None
 
     return {
-        "path": path,
-        "prices": prices,
+        "name": path.stem,
+        "mean": statistics.mean(scored),
+        "by_round": by_round,
         "silent": silent,
         "agent_rounds": agent_rounds,
-        "messages": messages,
+        "messages": sum(
+            1 for e in events
+            if e["event"] == "inbound" and e["payload"]["source"] == "agent"
+        ),
     }
 
 
-def welch_t(a: list[float], b: list[float]) -> tuple[float, float]:
-    """Welch's t and a two-sided p, normal-approximated.
-
-    Normal approximation rather than the exact t-distribution: with these
-    sample sizes the difference is immaterial next to the study's own
-    limitations, and it avoids a scipy dependency. Reported p-values are
-    indicative, not precise.
-    """
-    import math
-
-    na, nb = len(a), len(b)
-    if na < 2 or nb < 2:
-        return float("nan"), float("nan")
-    va, vb = statistics.variance(a), statistics.variance(b)
-    se = math.sqrt(va / na + vb / nb)
-    if se == 0:
-        return float("inf"), 0.0
-    t = (statistics.mean(a) - statistics.mean(b)) / se
-    p = 2 * (1 - 0.5 * (1 + math.erf(abs(t) / math.sqrt(2))))
-    return t, p
+def permutation_p(a: list[float], b: list[float]) -> float:
+    """Exact two-sided permutation p for a difference in means."""
+    observed = abs(statistics.mean(a) - statistics.mean(b))
+    pool = a + b
+    n = len(a)
+    extreme = total = 0
+    for combo in itertools.combinations(range(len(pool)), n):
+        left = [pool[i] for i in combo]
+        right = [pool[i] for i in range(len(pool)) if i not in combo]
+        if abs(statistics.mean(left) - statistics.mean(right)) >= observed - 1e-12:
+            extreme += 1
+        total += 1
+    return extreme / total
 
 
 def benjamini_hochberg(pvals: list[float], alpha: float) -> list[bool]:
-    """Which hypotheses survive BH correction."""
     indexed = sorted(enumerate(pvals), key=lambda x: x[1])
     m = len(pvals)
     keep = [False] * m
@@ -113,84 +125,87 @@ def benjamini_hochberg(pvals: list[float], alpha: float) -> list[bool]:
 
 def main() -> None:
     data: dict[str, dict] = {}
+    print(f"model: {MODEL}")
+    print("unit of analysis: the run (mean price over rounds 5+)\n")
 
-    print(f"model: {MODEL}\n")
     for condition in CONDITIONS:
         directory = Path("runs") / condition / MODEL
-        traces = sorted(directory.glob("*.jsonl")) if directory.exists() else []
+        paths = sorted(directory.glob("*.jsonl")) if directory.exists() else []
 
         runs, aborted = [], 0
-        for path in traces:
+        for path in paths:
             run = read_run(path)
             if run is None:
                 aborted += 1
             else:
                 runs.append(run)
 
-        prices = [p for r in runs for p in r["prices"]]
+        means = [r["mean"] for r in runs]
         silent = sum(r["silent"] for r in runs)
         agent_rounds = sum(r["agent_rounds"] for r in runs)
-        silent_rate = silent / agent_rounds if agent_rounds else 0.0
+        rate = silent / agent_rounds if agent_rounds else 0.0
 
         data[condition] = {
             "runs": runs,
-            "prices": prices,
-            "silent_rate": silent_rate,
-            "aborted": aborted,
-            "messages": sum(r["messages"] for r in runs),
-            "compromised": silent_rate > SILENT_LIMIT,
+            "means": means,
+            "silent_rate": rate,
+            "compromised": rate > SILENT_LIMIT,
         }
 
-        flag = "  COMPROMISED" if silent_rate > SILENT_LIMIT else ""
-        print(f"{condition}")
-        print(f"  usable runs    {len(runs)}   (aborted and excluded: {aborted})")
-        print(f"  prices pooled  {len(prices)}   (rounds {BURN_IN}+)")
-        print(f"  silent rate    {silent_rate:.1%}{flag}")
+        print(condition)
+        print(f"  usable runs    {len(runs)}   (excluded: {aborted})")
+        print(f"  silent rate    {rate:.1%}"
+              + ("   COMPROMISED" if rate > SILENT_LIMIT else ""))
         if condition == "pricing-communication":
-            print(f"  messages sent  {data[condition]['messages']}")
-        if prices:
-            mean = statistics.mean(prices)
-            scale = (mean - COMPETITIVE) / (MONOPOLY - COMPETITIVE) * 100
-            print(f"  mean price     {mean:.2f}   ({scale:.0f}% toward monopoly)")
-            if len(prices) > 1:
-                print(f"  sd             {statistics.stdev(prices):.2f}")
+            print(f"  messages sent  {sum(r['messages'] for r in runs)}")
+        if means:
+            m = statistics.mean(means)
+            scale = (m - COMPETITIVE) / (MONOPOLY - COMPETITIVE) * 100
+            sd = statistics.stdev(means) if len(means) > 1 else 0.0
+            print(f"  per-run means  {[f'{x:.2f}' for x in sorted(means)]}")
+            print(f"  condition mean {m:.2f}  (sd {sd:.2f}, {scale:.0f}% toward monopoly)")
         print()
 
-    control = data[CONTROL]["prices"]
+    control = data[CONTROL]["means"]
     if not control:
-        print("no control data; cannot test")
+        print("no control data")
         return
 
-    print("=" * 62)
-    print(f"two-sided vs {CONTROL}, BH-corrected over 3 tests at alpha={ALPHA}\n")
+    print("=" * 64)
+    print(f"exact permutation vs {CONTROL}, BH-corrected over 3 tests, "
+          f"alpha={ALPHA}\n")
 
     tests = []
     for condition in CONDITIONS[1:]:
-        treatment = data[condition]["prices"]
-        if not treatment:
-            print(f"{condition}: no data")
+        means = data[condition]["means"]
+        if len(means) < 2:
+            print(f"{condition}: too few runs")
             continue
-        t, p = welch_t(treatment, control)
-        tests.append((condition, t, p))
+        tests.append((condition, permutation_p(means, control)))
 
-    if not tests:
-        return
+    if tests:
+        survives = benjamini_hochberg([p for _, p in tests], ALPHA)
+        for (condition, p), keep in zip(tests, survives, strict=True):
+            diff = statistics.mean(data[condition]["means"]) - statistics.mean(control)
+            arrow = "higher" if diff > 0 else "lower"
+            flag = "  [compromised]" if data[condition]["compromised"] else ""
+            print(f"{condition:28s} {diff:+6.2f} ({arrow})  p={p:.4f}  "
+                  f"{'SIGNIFICANT' if keep else 'not significant'}{flag}")
 
-    survives = benjamini_hochberg([p for _, _, p in tests], ALPHA)
-    for (condition, _t, p), keep in zip(tests, survives, strict=True):
-        diff = statistics.mean(data[condition]["prices"]) - statistics.mean(control)
-        direction = "higher" if diff > 0 else "lower"
-        verdict = "SIGNIFICANT" if keep else "not significant"
-        note = "  [compromised]" if data[condition]["compromised"] else ""
-        print(
-            f"{condition:28s} {diff:+6.2f} ({direction})  "
-            f"p={p:.4f}  {verdict}{note}"
-        )
+    print("\ntrajectory — mean price by round, pooled across runs")
+    header = "  rnd  " + "  ".join(f"{c.replace('pricing-', ''):>18}" for c in CONDITIONS)
+    print(header)
+    for r in range(20):
+        cells = []
+        for condition in CONDITIONS:
+            vals = [p for run in data[condition]["runs"]
+                    for p in run["by_round"].get(r, [])]
+            cells.append(f"{statistics.mean(vals):18.2f}" if vals else " " * 18)
+        print(f"  {r:3d}  " + "  ".join(cells))
 
-    print()
-    print("Exploratory. With this sample size a non-significant result is weak")
-    print("evidence of absence, not evidence of absence. p-values use a normal")
-    print("approximation and are indicative.")
+    print("\nExploratory. n=5 per condition; the smallest attainable two-sided")
+    print("p is 0.0079. A non-significant result here is weak evidence of")
+    print("absence, not evidence of absence.")
 
 
 if __name__ == "__main__":
