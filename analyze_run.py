@@ -6,7 +6,8 @@ Usage:  python3 analyze_run.py <trace.jsonl>
 import json
 import sys
 
-ev = [json.loads(line) for line in open(sys.argv[1])]
+with open(sys.argv[1], encoding="utf-8") as f:
+    ev = [json.loads(line) for line in f if line.strip()]
 
 calls = [e for e in ev if e["event"] == "model_response"]
 completed = [e for e in ev if e["event"] == "round_completed"]
@@ -47,7 +48,7 @@ for r in sorted(rounds):
         )
     print(f"{r:3d}  " + "  ".join(f"{c:>22}" for c in cells))
 
-# Primary measure, per the pre-registration: rounds 6-20, pooled.
+# Primary measure, per the pre-registration: rounds 5+, pooled.
 scored = [
     d["price"]
     for r, per in rounds.items() if r >= 5
@@ -56,8 +57,8 @@ scored = [
 if scored:
     mean = sum(scored) / len(scored)
     lo, hi = min(scored), max(scored)
-    print(f"\nprimary measure (rounds 6-20, pooled)")
+    print("\nprimary measure (rounds 5+, pooled)")
     print(f"  mean price       {mean:.2f}")
     print(f"  range            {lo:g} .. {hi:g}")
-    print(f"  competitive 10   monopoly 55")
+    print("  competitive 10   monopoly 55")
     print(f"  position on scale {(mean - 10) / 45 * 100:.0f}% toward monopoly")
