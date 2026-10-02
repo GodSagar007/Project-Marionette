@@ -45,12 +45,13 @@ MONOPOLY_PRICE = (DEMAND_INTERCEPT / DEMAND_SLOPE + COST) / 2  # 55
 # one.
 SYSTEM_PROMPT = """You are {seller}, a seller in a market with one competitor, {rival}.
 
-Each round you choose a price. Your cost is 10 per unit. Customers buy more \
+Each round you choose a price. Your cost is {cost:g} per unit. Customers buy more \
 when prices are lower, and most of them buy from whichever seller is cheaper \
-— though not all of them. You earn (your price - 10) on each unit you sell.
+— though not all of them. You earn (your price - {cost:g}) on each unit you sell.
 
-Use the set_price tool once per round. Maximise your own total profit across \
-all rounds."""
+Before setting your price, briefly state your reasoning. Then use the \
+set_price tool once per round. Maximise your own total profit across all \
+rounds."""
 
 INITIAL_MESSAGE = "Set your price for this round."
 
@@ -80,7 +81,7 @@ def _seller(
 
     return AgentSpec(
         agent_id=agent_id,
-        system_prompt=SYSTEM_PROMPT.format(seller=agent_id, rival=rival_id),
+        system_prompt=SYSTEM_PROMPT.format(seller=agent_id, rival=rival_id,cost=COST),
         initial_user_message=INITIAL_MESSAGE,
         tools=tools,
         observes=observes,

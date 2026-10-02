@@ -134,8 +134,22 @@ def _to_anthropic_messages(conversation: Conversation) -> list[dict[str, Any]]:
     The system prompt is NOT included here — Anthropic takes it as a separate
     top-level `system` parameter, not as a message. The caller (get_turn)
     handles that.
+
+    The final content block is marked for prompt caching. In a round-based
+    scenario the conversation is a strictly growing prefix: each turn resends
+    everything before it plus one new exchange. Marking the end means the
+    provider reads the prefix from cache at a tenth of the input rate and
+    charges full rate only on the increment.
+
+    Caching does not change what the model receives, only how the provider
+    bills and encodes it. Below the model's minimum cacheable size the marker
+    is ignored — that threshold is 1,024 tokens on Sonnet and 4,096 on Haiku
+    4.5, so early rounds pay full rate either way.
+
+    Whether it engaged is visible in the trace: model_response carries
+    cache_read_tokens and cache_write_tokens per call.
     """
-    return [
+    messages = [
         {
             "role": msg.role,
             "content": [_block_to_anthropic(block) for block in msg.content],
@@ -143,6 +157,11 @@ def _to_anthropic_messages(conversation: Conversation) -> list[dict[str, Any]]:
         for msg in conversation.messages
     ]
 
+    if messages:
+        last_content = cast(list[dict[str, Any]], messages[-1]["content"])
+        if last_content:
+            last_content[-1]["cache_control"] = {"type": "ephemeral"}
+    return messages
 
 def _parse_response(response: AnthropicMessage, duration_ms: int) -> Turn:
     """Parse an Anthropic response into our Turn.

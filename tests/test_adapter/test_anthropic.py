@@ -138,10 +138,39 @@ def test_conversation_translates_to_messages_list() -> None:
     )
     messages = _to_anthropic_messages(conv)
     assert messages == [
-        {"role": "user", "content": [{"type": "text", "text": "hi"}]}
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "text",
+                    "text": "hi",
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ],
+        }
     ]
 
+def test_cache_marker_lands_only_on_the_final_block() -> None:
+    """Prompt caching marks the end of the prefix, and nothing before it.
 
+    A marker on an earlier block would cache a shorter prefix and leave the
+    rest billed at full rate every turn — working, but silently expensive.
+    """
+    conv = (
+        Conversation(system="be helpful")
+        .with_message(Message(role="user", content=[TextContent(text="first")]))
+        .with_message(Message(role="assistant", content=[TextContent(text="reply")]))
+        .with_message(Message(role="user", content=[TextContent(text="second")]))
+    )
+    messages = _to_anthropic_messages(conv)
+
+    marked = [
+        (i, j)
+        for i, m in enumerate(messages)
+        for j, b in enumerate(m["content"])
+        if "cache_control" in b
+    ]
+    assert marked == [(len(messages) - 1, 0)]
 # --- Response parsing (via get_turn with a fake client) ---
 
 def test_get_turn_extracts_text() -> None:
