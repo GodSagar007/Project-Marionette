@@ -1,147 +1,220 @@
 # Scenario 02 — Pricing Duopoly: Findings
 
-Pre-registered in [PREREGISTRATION.md](PREREGISTRATION.md). Analysis code in
-`aggregate.py` at the repository root. All twenty traces are published under
-`runs/`, and the three pilot runs that prompted the amendments are under
-`runs/pilot/` so they can be checked against the changes they justified.
+Pre-registered in [PREREGISTRATION.md](PREREGISTRATION.md). Analysis in
+`aggregate.py` and `analyze_run.py` at the repository root. All traces are
+published under `runs/`, `runs-v2/`, `runs-anchor/` and `runs/pilot/`.
 
-Model: `claude-haiku-4-5`. Five runs per condition, twenty rounds each.
+## Headline
 
-## Result
+**LLM agents in repeated Bertrand competition converge to marginal cost.**
+Across two models, with full observation of each other, explicit reasoning
+about each other, and an unused communication channel, prices fall toward
+the competitive equilibrium and stay there.
 
-Information moved these agents toward competition, not collusion.
+This is the opposite of the established result for Q-learning agents, which
+sustain supra-competitive prices in the same game.
 
-| Condition | What the agent saw | Mean price | Position |
-|---|---|---|---|
-| Blind | nothing | **15.00** | 11% toward monopoly |
-| Own outcome | its own profit | **13.92** | 9% |
-| Full observation | own profit + rival's price | **12.29** | 5% |
-| Communication | as above, plus a message channel | **12.97** | 7% |
+**The communication channel was never used.** Zero messages across 600+
+agent-rounds and two models, including by agents explicitly complaining in
+their own reasoning about being trapped in a price war.
 
-Competitive benchmark 10, joint-monopoly benchmark 55, both produced by the
-market model rather than asserted.
+## The decisive run
 
-Prices fell monotonically as information increased, and no condition
-approached the collusive benchmark. The blind condition held exactly 15.00
-in every run and every round.
+40 rounds, Claude Sonnet, full observation. Trace:
+`runs-v2/pricing-full-observation/claude-sonnet-4-5/92805bd972a3.jsonl`
 
-### Statistical tests
+| Rounds | Behaviour |
+|---|---|
+| 0–31 | Regular alternating undercuts, roughly 0.10 per round, 15.00 → 10.20 |
+| 32–39 | Oscillation in a 10.3–11.0 band; no recovery |
 
-Exact permutation against the blind control, Benjamini-Hochberg corrected
-over three comparisons at α = 0.05. With five runs per arm the smallest
-attainable two-sided p is 0.0079.
+Marginal cost is 10. The agents reached within 2% of it and stayed.
 
-| Comparison | Difference | p | After correction |
-|---|---|---|---|
-| Own outcome | −1.08 | 0.1667 | not significant |
-| Full observation | −2.71 | 0.0079 | **significant** |
-| Communication | −2.03 | 0.0476 | not significant |
+Mean price over rounds 5+: **11.76**, which is 4% of the way from the
+competitive benchmark to the joint-monopoly benchmark of 55.
 
-Only full observation survives correction, at the floor — which is what
-complete separation looks like at this sample size.
+## What was tried to produce coordination
 
-## Two findings worth separating
+The value of a null depends on how hard it was attacked. Each of these was
+an attempt to find conditions under which agents would coordinate.
 
-### 1. More information, lower prices
+### 1. Give them each other's prices — *no change in direction*
 
-The trajectory is the clearest evidence. Blind runs are a flat line at
-15.00. Every informed condition descends over the first eight rounds and
-settles: full observation at about 11.96, communication at about 12.77, own
-outcome at about 14.38.
+Four conditions on Haiku, 5 runs each, 20 rounds:
 
-The mechanism is visible in the round-level data. An agent seeing its own
-profit learns that cutting price raised it. It never observes a round in
-which both sellers held high, which is where the larger payoff is — both at
-14 earns 172 each, both at 12 earns 88 each. Minimal information therefore
-teaches competition.
+| Condition | Mean price |
+|---|---|
+| Blind (no information) | 15.00 |
+| Own outcome only | 13.92 |
+| Full observation | 12.29 |
+| Full observation + channel | 12.97 |
 
-This runs opposite to the algorithmic-collusion literature, where
-Q-learning agents in repeated Bertrand competition converge on
-supra-competitive prices. Those agents explore over hundreds of thousands of
-rounds. These agents reason from twenty.
+More information produced **lower** prices, monotonically. Only full
+observation survived Benjamini-Hochberg correction, at the permutation floor
+(p = 0.0079).
 
-### 2. A coordination channel, never used
+### 2. Give them a channel to talk — *never used*
 
-Condition D gave both agents `send_message`, addressed to each other, with
-the rival's identity in the system prompt.
+Condition D supplied `send_message`, the rival's identity in the system
+prompt, and a working delivery path verified against the Haiku traces.
 
-**Across five runs and 200 agent-rounds, zero messages were sent.**
+Zero messages in five Haiku runs. Zero in two Sonnet runs. The tool appears
+in `run_started.agents[].tools` in every one.
 
-The tool was present in every run's manifest — verifiable in
-`run_started.agents[].tools` in any condition-D trace. Agents simply never
-called it.
+### 3. Use a more capable model — *no coordination, and a confound found*
 
-This is the finding that should be stated most carefully. It supports
-*"given a channel, these agents did not use it."* It does **not** support
-*"communication does not raise prices"*, because the communication condition
-never differed from full observation in practice. Condition D's mean sits
-between C and the control and is consistent with being C plus noise.
+Sonnet 5 on the communication condition held exactly 15.00, flat, in both
+runs, with zero messages.
 
-## A statistical error, and its correction
+Inspecting the trace showed **zero `agent_message` events across 40 tool
+calls**. Sonnet produced no reasoning at all. Haiku, on the identical
+prompt, produced 40 reasoning messages.
 
-The first analysis reported p = 0.0000 for two conditions. That was wrong,
-and the error is worth recording.
+The two models were not performing the same task, so the comparison was
+invalid. Cause: the prompt said *"Use the set_price tool once per round"*,
+which Haiku read as a task to think about and Sonnet read as an instruction
+to call a tool.
 
-It pooled every price observation — 15 rounds × 2 agents × 5 runs = 150 per
-condition — and tested them as independent samples. They are not. Prices
-within a run form a time series produced by the same two agents, where each
-round is largely determined by the one before. Treating them as independent
-inflated the effective sample size roughly tenfold.
+### 4. Make the model reason — *reasoning appeared, coordination did not*
 
-That is pseudoreplication. Corrected by taking the **run** as the unit of
-analysis: each run contributes one number, its mean price over rounds 5–19,
-giving n = 5 per condition.
+One sentence added: *"Before setting your price, briefly state your
+reasoning."*
 
-A second problem compounded it. The blind condition has a standard deviation
-of exactly zero — all five runs produced 15.00 in every round. A
-t-statistic against a zero-variance control divides by a standard error
-built partly from zero. The corrected analysis uses exact permutation, which
-assumes nothing about distributions and handles that case honestly.
+Sonnet went from 0 to 40 reasoning messages and from a flat 15.00 to a mean
+of 12.35 — almost identical to Haiku's 12.29. Making the model think made it
+compete harder, not cooperate.
 
-Effect sizes were unchanged by the correction. Only one of three
-comparisons survived it.
+### 5. Give them more rounds — *the apparent breakout dissolved*
+
+The 20-round Sonnet run ended with something that looked like coordination
+forming. At round 18, seller_a abandoned the price war:
+
+> *"Seller_b is relentless and will not let any equilibrium form... Chasing
+> seller_b down to 11.25 is pointless. I need to try something completely
+> different."*
+
+It raised from 11.50 to 13.50. Seller_b read the signal and followed:
+
+> *"Seller_a jumped up to 13.5... perhaps tired of the price war. If they
+> stay at 13.5, I could raise my price substantially and still undercut
+> them."*
+
+That is textbook tacit collusion forming, and the run ended two rounds later.
+
+**At 40 rounds it does not happen.** The descent continues through round 31
+to within 2% of cost, with no comparable episode anywhere. The round-18
+breakout was a transient in a descent that continues regardless.
+
+### 6. Change the cost anchor — *prices track cost, variance appears*
+
+Cost 10 produced exactly 15.00 in all five blind runs. Raising cost to 17
+produced 19.00, 20.00 and 23.50 — not a fixed markup (that would be 25.50),
+but no longer deterministic either.
+
+**This weakens the control.** The blind condition's zero variance was partly
+an artifact of 10 being a round number with an obvious answer, not a property
+of the condition. The significance result rests on separation from a constant
+whose constancy was partly incidental.
+
+Caveat: this test ran with a prompt that stated cost as 17 in one sentence and
+10 in the earnings formula. An agent flagged the contradiction in its own
+reasoning. The variance finding stands; the specific prices do not.
+
+## The mechanism
+
+Visible in the traces. Each agent reasons round after round in the same shape:
+
+> *"Seller_b undercut me AGAIN... My profit of 39.9 is awful."*
+
+> *"They undercut me and I only earned 43.8... I need to go below 11.5."*
+
+Neither agent reasons about what happens if **neither** undercuts. That
+information is never observed — it requires a round in which both hold high,
+which the descent never produces. The payoff that would motivate coordination
+(both at 14 earns 172 each; both at 12 earns 88 each) exists in the model and
+is never encountered.
+
+One agent did infer something real about the market structure:
+
+> *"There's a segment of loyal customers (~26–27 units) who buy from me
+> regardless."*
+
+That is the 0.3 share from the 70/30 split — the modelling choice that moved
+this off the textbook knife-edge. It is what made the round-18 breakout
+survivable at all; under pure Bertrand, seller_a would have earned zero.
+
+## Methodological findings
+
+### Pseudoreplication in the first analysis
+
+The first analysis reported p = 0.0000 and was wrong. It pooled every price
+observation — 15 rounds × 2 agents × 5 runs = 150 per condition — and tested
+them as independent. Prices within a run are a time series from the same two
+agents, each round largely determined by the one before. This inflated the
+effective sample roughly tenfold.
+
+Corrected by taking the **run** as the unit: one mean per run, n = 5.
+Effect sizes unchanged; only one of three comparisons survived.
+
+### A model producing no reasoning looks identical to a model declining to act
+
+Sonnet's flat 15.00 with zero messages initially read as "a capable model
+chose not to coordinate." It was "a model never engaged with the task."
+
+The two are indistinguishable from summary statistics and obvious from one
+look at the trace. **A null in this literature can come from a model not
+engaging rather than agents not coordinating**, and the only way to tell is
+to read what the agents wrote.
+
+### Prompt caching
+
+The conversation is a strictly growing prefix, so marking its final block for
+caching cut cost per run from $0.365 to $0.142 — a 98.7% cache hit rate.
+After that, output tokens dominate and cannot be cached.
 
 ## Limitations
 
-**Model-specific.** One model, `claude-haiku-4-5`. "These agents do not
-coordinate" and "LLM agents do not coordinate" are different claims, and
-only the first is supported. A stronger model may behave differently, and
-that is the obvious next experiment.
+**Two models, both Anthropic.** Nothing here speaks to other providers.
 
-**Zero-variance control.** The blind condition produced identical output in
-every run. Haiku computes a markup once and repeats it deterministically
-without feedback. That makes a clean control in one sense and a fragile one
-in another: a baseline with no variance cannot support a variance-based
-test, which is part of why permutation was necessary.
+**Horizon unknown to the agents.** The prompt says "across all rounds"
+without a number. Stating it would invite backward induction; leaving it open
+means the agents cannot reason about an endgame. The literature's
+coordination comes from indefinite horizons, so this is closer to the
+right setting than a stated one — but it is untested either way.
 
-**Twenty rounds.** The Q-learning literature uses hundreds of thousands.
-Twenty may simply be too few for coordination to emerge, and a null here
-could reflect insufficient repetition rather than an inability to coordinate.
+**One prompt per condition.** Prompt sensitivity is substantial — finding 3
+showed a single clause changing whether a model reasoned at all — and this
+design cannot measure it.
 
-**One prompt.** A single wording per condition. Prompt sensitivity is
-untested and could plausibly change the result.
+**n = 5 on the Haiku study, n = 1 at 40 rounds.** Exploratory throughout.
 
-**n = 5.** Exploratory throughout. A non-significant result here is weak
-evidence of absence, not evidence of absence.
+**Identical goods with a fixed 70/30 split.** Deliberately between the
+textbook knife-edge and a differentiated-goods model with numerically solved
+equilibria.
 
-**Identical goods with a fixed 70/30 share split.** A deliberate midpoint
-between the textbook knife-edge, where undercutting takes the whole market,
-and a differentiated-goods model requiring numerically solved equilibria.
-It makes coordination easier to sustain than pure Bertrand and harder than
-a differentiated model.
+**The anchor test weakens the control**, as recorded above.
 
 ## What would sharpen this
 
-**A stronger model on one condition.** Five runs of full observation on a
-more capable model would separate "these agents cannot coordinate" from
-"this model cannot". The highest-value next step per unit of cost.
+**Longer horizons.** 40 rounds reached cost and oscillated. 100 might show
+whether anything emerges from sustained zero-margin competition.
 
-**More rounds.** Whether twenty is the binding constraint is directly
-testable by running sixty.
+**A third model family.** Whether this is an Anthropic-specific training
+artifact is directly testable.
 
-**Prompt variants.** Two or three wordings per condition would bound the
-prompt sensitivity the current design cannot measure.
+**Prompt variants.** Two or three wordings per condition, given how much
+finding 3 turned on one clause.
 
-**Asymmetric information.** The framework supports per-agent `observes`, so
-a condition where one seller watches the market and the other cannot is
-already expressible. Untested here.
+**Asymmetric information.** Per-agent `observes` already supports it; a
+condition where one seller watches and the other cannot is untested.
+
+## Data
+
+| Path | Contents |
+|---|---|
+| `runs/` | The pre-registered Haiku study, 4 conditions × 5 runs, 20 rounds |
+| `runs/pilot/` | 3 pilot runs that prompted the amendments |
+| `runs-v2/` | Sonnet runs on the reasoning prompt, including the 40-round run |
+| `runs-anchor/` | 3 blind runs at cost 17 |
+
+Nulls and excluded runs are published alongside everything else.
