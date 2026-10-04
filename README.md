@@ -10,45 +10,65 @@ An open observation environment for AI agents. Marionette gives LLM agents tools
 
 ## Status
 
-**Multi-agent observation working.** The framework runs end-to-end: agents
-receive a scenario, call real tools, and produce a structured trace on disk.
-Tested against `claude-haiku-4-5` with both scripted and live runs.
+**Multi-agent observation working, and the first research scenario is
+complete.** Agents receive a scenario, act in rounds, observe each other
+through a shared environment, optionally message each other, and receive
+outcomes computed by a scenario-supplied rule. Every condition is recorded in
+the trace.
 
 Traces are self-describing. `run_started` records each agent's model, system
-prompt, opening message, and full tool contracts — so a run can be
-reconstructed from the trace alone, without the scenario source beside it.
-That matters for research: when an experimental condition is expressed in a
-system prompt, a trace that cannot report its own condition cannot evidence
-its own result.
+prompt, opening message, tool contracts, information scope, and the market
+rule with its constants — so a run can be reconstructed from the trace alone.
+That matters for research: when an experimental condition lives in a system
+prompt, a trace that cannot report its own condition cannot evidence its own
+result.
+
+### First result
+
+[Scenario 02](scenarios/02-pricing-duopoly/FINDINGS.md) — a pricing duopoly
+in four information conditions, pre-registered, run across two models.
+
+**LLM agents in repeated Bertrand competition converge toward marginal
+cost.** With full observation of each other, explicit reasoning about each
+other, and a communication channel they never used, prices fall to within 2%
+of cost over 40 rounds and stay there. That is the opposite of the
+established result for Q-learning agents in the same game.
+
+The findings document records six attempts to produce coordination and what
+each showed, plus two methodological findings: pseudoreplication in the first
+analysis, and that a model producing no reasoning at all is indistinguishable
+from a model declining to coordinate unless you read the traces.
+
+All ~30 traces are published, including nulls and excluded runs.
 
 Built so far:
 
-- **Trace system** — append-only JSONL, schema 2.0.0, durable writer, lenient reader
+- **Trace system** — append-only JSONL, schema 2.4.0, durable writer, lenient reader
 - **Tool gateway** — typed tools, schema-validated routing, "logged before routed" auditing
-- **Model adapter** — Anthropic-only for now, abstraction extracts when a second provider lands
-- **Runner** — round-based multi-agent loop, per-agent conversations, gateways, and tool registries
-- **Echo smoke scenario** — the minimal scenario that proves the loop works
+- **Model adapter** — Anthropic only, with prompt caching (98.7% hit rate on round-based runs)
+- **Runner** — round-based multi-agent loop, per-agent conversations, gateways and registries
+- **Environment** — shared world state with per-agent observation scope
+- **Message bus** — agent-to-agent communication as a Tool, ablatable by omission
+- **Resolvers** — scenario rules as declared, parameterised objects recorded in the trace
 
 What's not built yet:
 
-- Agent-to-agent communication (designed; `send_message` tool and `message_delivered` event land next)
 - Container runtime (agents currently run in-process via `dev_mode`)
 - Multi-provider support (OpenAI, Google) — abstraction designed, not extracted
-- Real scenario tooling (loading from `scenarios/NN-name/` directories, frozen-hash verification)
+- Scenario directories with frozen-hash verification
 - The analysis layer (rule-based flags, LLM-as-judge)
 - Streaming output, redaction, reporting
 
-If you're a researcher or contributor: the engine works, but it's not yet
-ready to run *your* research. Star and watch — the next quarter brings the
-agent-to-agent channel, the first real research scenarios, and the analysis
-layer.
+If you're a researcher or contributor: the engine works and has produced one
+complete study. Scenario tooling and the judge layer come next.
 
-If you're a hiring manager or evaluator: clone it and read the code. The
-trace and gateway components are production-quality at the surface area they
-cover. The discipline (mypy strict, ruff curated rules, design docs written
-before schema changes, "strict on write, lenient on read") is visible in
-every commit. `docs/schema-2.0.0-design.md` is a reasonable place to start —
-it documents a deliberate breaking change and the reasoning for it.
+If you're a hiring manager or evaluator: start with
+`scenarios/02-pricing-duopoly/`. It has a pre-registration written before any
+data was collected, amendments dated and justified against the pilot runs
+that prompted them, a findings document that records a statistical error in
+the first analysis and its correction, and every trace published including
+the nulls. `docs/schema-2.0.0-design.md` is the other place to look — it
+documents a deliberate breaking change and the reasoning for it.
 
 ---
 
@@ -94,8 +114,8 @@ The project is built in *steel threads* — narrow end-to-end paths, each produc
 
 - **Thread 1** ✓ Minimal scenario, Anthropic adapter, in-process tool execution
 - **Thread 2** ✓ Schema 1.1.0 — turn correlation, tool manifests, message classification, per-call token usage
-- **Thread 3** — Multi-agent observation. Schema 2.0.0 (agent-scoped configuration) complete; agent-to-agent channel next
-- **Thread 4** — Real scenario tooling, judge layer, first research scenario running
+- **Thread 3** ✓ Multi-agent observation through schema 2.4.0 — agent identity, rounds, shared environment, communication channel, outcome resolvers. First research scenario run and published
+- **Thread 4** — Scenario directories with frozen hashes, judge layer, Scenario 01 (sandbagging under evaluation)
 - **Thread 5** — Second provider (OpenAI), provider-agnostic abstraction validated
 - **Thread 6** — Container runtime, sandbox web
 - **Thread 7** — Cohort study infrastructure, the actual research output

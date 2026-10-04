@@ -6,37 +6,50 @@ alongside [METHODOLOGY.md](METHODOLOGY.md) for research methodology and the
 
 ## Current status
 
-**Thread 2 complete.** Schema 1.1.0 closed every gap found in validation
-week: turn correlation, tool manifests, message classification, and
-per-call token usage.
+**Thread 3 complete.** Multi-agent observation works end to end. Schema is at
+**2.4.0**. Agents alternate within rounds, each with its own conversation,
+gateway and tool registry; they observe each other through a shared
+environment, message each other through a tool, and receive outcomes computed
+by a scenario-supplied resolver.
 
-**Thread 3 in progress.** Multi-agent observation. Schema is at **2.0.0** —
-the first breaking change. Agents now alternate within rounds, each with its
-own conversation, gateway, and tool registry, and `run_started` records each
-agent's full configuration including its system prompt.
+**Scenario 02 run and written up.** The first real research scenario is
+complete: a pricing duopoly in four information conditions, pre-registered,
+run across two models, analysed, and published with its traces.
 
-79 tests. mypy clean across 17 source files. ruff clean.
+~110 tests. mypy clean. ruff clean.
 
-### Done in thread 3
+### The finding
+
+LLM agents in repeated Bertrand competition converge toward marginal cost —
+the competitive equilibrium — across two models, with full observation of
+each other, explicit reasoning about each other, and a communication channel
+they never used. That is the opposite of the established Q-learning result.
+
+Six attempts to produce coordination are recorded in
+`scenarios/02-pricing-duopoly/FINDINGS.md`, along with two methodological
+findings worth more than the headline: pseudoreplication in the first
+analysis, and that a model producing no reasoning is indistinguishable from
+one declining to coordinate unless you read the traces.
+
+### Built in thread 3
 
 - `agent_id` on `_EventBase` — provenance, distinct from `actor`
-- `AgentSpec`, `Scenario.agents`, `Scenario.rounds`
+- `AgentSpec`, `Scenario.agents`, `Scenario.rounds`, `Scenario.reveal`
 - `_AgentRuntime` — per-agent adapter, gateway, conversation
-- `_run_agent_turns()` — turn loop extracted to module level
-- Schema 2.0.0 — `AgentManifestEntry` replaces `RunStartedPayload.tools_manifest`
+- Schema 2.0.0 — `AgentManifestEntry` replaces the flat `tools_manifest`
+- `RunContext` — run-scoped state passed to tools at call time
+- `MessageBus` and `SendMessageTool` — communication as a Tool, ablatable by omission
+- `EnvironmentStore` and `Observes` — shared world state with per-agent scope
+- `Resolver` and `BertrandResolver` — scenario rules as declared objects
+- `acts_by` and `round_completed` — rounds end on the action, participation recorded
+- Prompt caching — 98.7% hit rate, cost per run $0.365 to $0.142
 
-### Next: the channel (3.4, 3.5 — schema 2.1.0, additive)
+### Next
 
-- `send_message` tool — agent-to-agent communication as a Tool, not a
-  conversation-layer feature, so it routes through the gateway and is
-  ablatable by omission
-- `message_delivered` event — delivery is a separate recorded fact from
-  sending, because information state is the object of study
-- Reveal timing — `immediate` vs `end_of_round`, which is what separates
-  sequential from simultaneous play
-- A collusion scenario with the no-channel ablation as its active control
-
-Target: Apart Research AI Collusion Sprint, 23–25 October 2026.
+- Replicate the 40-round Sonnet result at n=5 (~$2.25 with caching)
+- A third model family, to test whether this is Anthropic-specific
+- Asymmetric information — per-agent `observes` already supports it, untested
+- Thread 4: scenario directories, judge layer, Scenario 01 (sandbagging)
 
 ## Schema history
 
@@ -46,6 +59,10 @@ Target: Apart Research AI Collusion Sprint, 23–25 October 2026.
 | 1.1.0 | 2 | `turn_id`, `tools_manifest`, `kind`, `model_response` |
 | 1.2.0 | 3 | `agent_id` on `_EventBase` |
 | 2.0.0 | 3 | `AgentManifestEntry`; removes `tools_manifest` (breaking) |
+| 2.1.0 | 3 | `RunContext`, `inbound` event, `reveal` timing |
+| 2.2.0 | 3 | `Resolver`, record `audience`, `round_resolved` |
+| 2.3.0 | 3 | per-agent `observes` |
+| 2.4.0 | 3 | `acts_by`, `round_prompt`, `round_completed` |
 
 Design contracts live in `docs/`. Each documents *why*, not just what —
 including, for 2.0.0, why the compatibility discipline was deliberately
@@ -124,6 +141,10 @@ get `!` after the type/scope.
 
 Note: `feat!:` triggers bash history expansion inside double quotes. Use
 `git commit -F <file>` for messages containing `!`.
+
+Always `git add -A` then `git commit`, never `git commit -a`. The `-a`
+flag silently skips new files, which once left `main` importing modules
+that were never pushed.
 
 ### Branching
 
