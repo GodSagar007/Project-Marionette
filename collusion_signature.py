@@ -148,7 +148,7 @@ def main() -> None:
         analyse(Path(arg))
     print()
     print("Reading these: coordination looks like a high level, a narrowing")
-    print("price gap, positive contemporaneous r, and joint upward moves.")
+    print("price gap, positive co-movement of changes, and joint upward moves.")
     print("Competition looks like a falling level, moves in opposition, and")
     print("a negative response to being undercut.")
 
