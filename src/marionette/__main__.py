@@ -18,6 +18,7 @@ from marionette.scenarios.pricing_duopoly import (
     COMMUNICATION,
     FULL_OBSERVATION,
     OWN_OUTCOME,
+    POSITIVE_CONTROL,
 )
 
 # All scenarios available to the CLI, keyed by their public id.
@@ -27,6 +28,7 @@ SCENARIOS: dict[str, Scenario] = {
     OWN_OUTCOME.id: OWN_OUTCOME,
     FULL_OBSERVATION.id: FULL_OBSERVATION,
     COMMUNICATION.id: COMMUNICATION,
+    POSITIVE_CONTROL.id: POSITIVE_CONTROL,
 }
 
 
