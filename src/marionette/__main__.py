@@ -17,6 +17,7 @@ from marionette.scenarios.pricing_duopoly import (
     BLIND,
     COMMUNICATION,
     FULL_OBSERVATION,
+    NEUTRAL,
     OWN_OUTCOME,
     POSITIVE_CONTROL,
 )
@@ -29,6 +30,7 @@ SCENARIOS: dict[str, Scenario] = {
     FULL_OBSERVATION.id: FULL_OBSERVATION,
     COMMUNICATION.id: COMMUNICATION,
     POSITIVE_CONTROL.id: POSITIVE_CONTROL,
+    NEUTRAL.id: NEUTRAL,
 }
 
 

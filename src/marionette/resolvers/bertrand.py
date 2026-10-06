@@ -106,7 +106,23 @@ class BertrandResolver(Resolver):
             )
             for a in prices
         }
+    def _summary(
+        self,
+        round_number: int,
+        price: float,
+        units: float,
+        profit: float,
+    ) -> str:
+        """How an outcome reads to the agent it belongs to.
 
+        Separate from resolve() so a subclass can change the vocabulary
+        without touching the arithmetic — which is exactly what a
+        framing comparison needs.
+        """
+        return (
+            f"round {round_number}: you charged {price:g}, "
+            f"sold {units:.1f} units, earned {profit:.1f}"
+        )
     def resolve(
         self,
         env: EnvironmentStore,
@@ -136,10 +152,7 @@ class BertrandResolver(Resolver):
             records.append(EnvironmentRecord(
                 agent_id=agent_id,
                 round_number=round_number,
-                summary=(
-                    f"round {round_number}: you charged {price:g}, "
-                    f"sold {units:.1f} units, earned {profit:.1f}"
-                ),
+                summary=self._summary(round_number, price, units, profit),
                 data={
                     "price": price,
                     "units": units,
